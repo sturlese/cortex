@@ -1,0 +1,110 @@
+# ============================================================================
+#  cortex ingestion stack — Google Drive -> brain-md (Markdown knowledge base).
+#
+#  fetch     -> Python + gog. DETERMINISTIC, no LLM. Drive -> raw/.
+#  clean     -> PydanticAI + OpenAI API. raw/ -> brain-md/.
+#  gotenberg -> sidecar: Office (pptx/doc/ppt) -> PDF over HTTP.
+#  graph     -> optional batch stage (profile "graph"): brain-md -> brain-md-graphed.
+#
+#  Boundary with the brain-server stack (gbrain/) = the EXTERNAL `brain-md`
+#  volume (the airgap). This stack NEVER carries a DATABASE_URL.
+#
+#  Docs: docs/pipeline/ · page contract: docs/pipeline/brain-page-contract.md
+# ============================================================================
+
+name: cortex-pipeline
+
+services:
+  # ── DOWNLOAD (deterministic) ───────────────────────────────────────────────
+  fetch:
+    init: true
+    build: ./fetch
+    image: cortex-fetch:local
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - raw-drive:/data/raw            # Drive mirror + _state.json (per-file-id manifest)
+      - gog-state:/data/gog            # GOG_HOME: gog config + keyring/token (seeded out-of-band)
+    # ENTRYPOINT = `python /app/drive_fetch.py`; args only:
+    # --loop = poll every POLL_INTERVAL_SECONDS (default 1800). --once = single pass.
+    command: ["--loop"]
+
+  # ── CLEAN (agentic worker, PydanticAI + OpenAI API) — raw/ -> brain-md/ ────
+  # One agent per document (structured outputs) with bounded tools (read_more,
+  # ocr) and a deterministic verifier as judge. asyncio concurrency. To actually
+  # process: CLEAN_DRY_RUN=false (default true = safe no-op).
+  clean:
+    init: true
+    build: ./clean
+    image: cortex-clean:local
+    restart: unless-stopped
+    environment:
+      RAW_DIR: /data/raw
+      BRAIN_MD_DIR: /data/brain-md
+      CLEAN_STATE_DIR: /data/state
+      CLEAN_INTERVAL_SECONDS: ${CLEAN_INTERVAL_SECONDS:-300}
+      CLEAN_DRY_RUN: ${CLEAN_DRY_RUN:-true}
+      CLEAN_MAX_DOCS: ${CLEAN_MAX_DOCS:-0}          # 0 = unlimited; >0 = bounded trial run
+      CLEAN_MAX_CONCURRENT: ${CLEAN_MAX_CONCURRENT:-4}
+      CLEAN_MODEL: ${CLEAN_MODEL:-gpt-5.4}
+      CLEAN_REASONING_EFFORT: ${CLEAN_REASONING_EFFORT:-medium}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}           # required to process; clean fails fast without it
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}           # enables the agent's ocr tool (scanned PDFs)
+      VISION_MODEL: ${VISION_MODEL:-gemini-3-flash-preview}
+      GOTENBERG_URL: ${GOTENBERG_URL:-http://gotenberg:3000}
+      CLEAN_TRACE: ${CLEAN_TRACE:-}                 # 'logfire' = OTel tracing of agent runs (optional)
+    depends_on: [gotenberg]
+    volumes:
+      - raw-drive:/data/raw:ro            # READS what fetch mirrored
+      - brain-md:/data/brain-md           # WRITES the corpus (boundary with the brain server). Single writer.
+      - clean-state:/data/state           # pipeline state (hash-based idempotency)
+
+  # ── GOTENBERG sidecar — Office -> PDF (stateless) ──────────────────────────
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    restart: unless-stopped
+    # clean POSTs to /forms/libreoffice/convert. No volumes, no secrets.
+
+  # ── OPS (supervisor agent, on demand) ──────────────────────────────────────
+  # Second level of agency: reads the pipeline telemetry, spot-audits pages against
+  # fresh source extracts, requeues bounded work, distills the workers' playbook and
+  # writes ops-report.md. Run after a pass:  docker compose --profile ops run --rm ops
+  ops:
+    init: true
+    build: ./clean
+    image: cortex-clean:local
+    profiles: ["ops"]
+    entrypoint: ["python", "-m", "clean.ops"]
+    environment:
+      RAW_DIR: /data/raw
+      BRAIN_MD_DIR: /data/brain-md
+      CLEAN_STATE_DIR: /data/state
+      CLEAN_MODEL: ${CLEAN_MODEL:-gpt-5.4}
+      CLEAN_REASONING_EFFORT: ${CLEAN_REASONING_EFFORT:-medium}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CLEAN_TRACE: ${CLEAN_TRACE:-}
+    volumes:
+      - raw-drive:/data/raw:ro
+      - brain-md:/data/brain-md:ro        # the supervisor READS pages; it never writes them
+      - clean-state:/data/state           # writes: requeue marks + playbook + ops-report.md
+
+  # ── GRAPH (optional, batch) — brain-md -> brain-md-graphed ────────────────
+  # Run on demand: docker compose --profile graph run --rm graph
+  graph:
+    init: true
+    build: ./graph
+    image: cortex-graph:local
+    profiles: ["graph"]
+    command: ["--in", "/data/brain-md", "--out", "/data/brain-md-graphed"]
+    volumes:
+      - brain-md:/data/brain-md:ro
+      - brain-md-graphed:/data/brain-md-graphed
+
+volumes:
+  raw-drive:            # Drive mirror (fetch writes, clean reads)
+  clean-state:          # clean state (hash-based idempotency)
+  gog-state:            # gog keyring/token — SEEDED out-of-band (see docs/pipeline/fetch.md)
+  brain-md:
+    external: true      # SHARED with the brain-server stack. Create once: `docker volume create brain-md`
+  brain-md-graphed:
+    external: true      # derived graph layer. Create once: `docker volume create brain-md-graphed`

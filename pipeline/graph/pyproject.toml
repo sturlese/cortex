@@ -1,0 +1,15 @@
+[project]
+name = "graph"
+version = "0.1.0"
+description = "Graph stage: brain-md -> brain-md-graphed (entity nodes + wikilinks). Deterministic, no LLM."
+requires-python = ">=3.12"
+dependencies = ["pyyaml>=6.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--cov --cov-report=term-missing"
+
+[tool.coverage.run]
+source_pkgs = ["graph"]
+omit = ["tests/*"]

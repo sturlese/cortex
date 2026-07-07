@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [pipeline/fetch, pipeline/clean, pipeline/corpus, pipeline/graph]
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ${{ matrix.package }}/requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests (coverage gate 75%)
+        run: pytest --cov-fail-under=75
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Ruff
+        run: pipx run ruff check pipeline evals
+
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pipeline/clean/requirements.txt
+      - name: Install dependencies
+        run: pip install -r pipeline/clean/requirements.txt -r pipeline/graph/requirements.txt
+      - name: Golden scorecard (offline, deterministic)
+        run: python evals/run_evals.py
+
+  compose-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate compose files
+        run: |
+          cp pipeline/.env.example pipeline/.env
+          cp gbrain/.env.example gbrain/.env
+          docker compose -f pipeline/docker-compose.yml config >/dev/null
+          docker compose -f gbrain/docker-compose.yml config >/dev/null

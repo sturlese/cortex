@@ -1,0 +1,417 @@
+#!/usr/bin/env python3
+"""
+drive_fetch.py — DOWNLOAD stage of the ingestion pipeline.
+
+Mirrors a Google Drive folder -> raw/ using the `gog` CLI. DETERMINISTIC, no LLM.
+Strict boundary: it does NOT write Markdown, does NOT talk to the brain server, does NOT call an LLM.
+
+Incremental model: folder-scoped via `gog drive inventory --parent <folder>` (recursive listing)
+plus a MANIFEST keyed by Drive file id in raw/_state.json. Each run: list the folder, compare each
+file's fingerprint (modifiedTime) against the manifest, and download only new/changed files;
+whatever disappeared from the folder is removed from raw/ and from the manifest (deletions
+propagate).
+
+CREDENTIALS: none hardcoded. All configuration is read ONCE, in `Config.from_env()` at the
+entrypoint, and passed down explicitly — this module never reads the environment at import time.
+Drive auth is managed by `gog` (its keyring, via GOG_KEYRING_*).
+
+ENV (see Config.from_env):
+  DRIVE_FOLDER / DRIVE_FOLDER_ID   what to mirror (define one; id wins)
+  GOG_ACCOUNT                      (optional) gog account (-a); empty = keyring default
+  RAW_DIR                          default /data/raw
+  POLL_INTERVAL_SECONDS            default 1800
+  GOOGLE_DOCS_FORMAT               default md (export for native Google Docs)
+  GOG_BIN                          default gog
+  GOG_ALL_DRIVES                   default true (include shared drives)
+
+Usage:  drive_fetch.py [--once]   (default: loop)
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import tempfile
+import time
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+
+FOLDER_MIME = "application/vnd.google-apps.folder"
+
+
+@dataclass(frozen=True)
+class Config:
+    """All runtime configuration, constructed once at the entrypoint."""
+    folder: str = ""              # root folder by NAME (the script resolves its id)
+    folder_id: str = ""           # explicit id (wins when both are set)
+    account: str = ""
+    raw_dir: Path = Path("/data/raw")
+    poll_seconds: int = 1800
+    docs_format: str = "md"
+    gog_bin: str = "gog"
+    all_drives: bool = True
+
+    @classmethod
+    def from_env(cls) -> Config:
+        return cls(
+            folder=os.environ.get("DRIVE_FOLDER", "").strip(),
+            folder_id=os.environ.get("DRIVE_FOLDER_ID", "").strip(),
+            account=os.environ.get("GOG_ACCOUNT", "").strip(),
+            raw_dir=Path(os.environ.get("RAW_DIR", "/data/raw")),
+            poll_seconds=int(os.environ.get("POLL_INTERVAL_SECONDS", "1800")),
+            docs_format=os.environ.get("GOOGLE_DOCS_FORMAT", "md").strip(),
+            gog_bin=os.environ.get("GOG_BIN", "gog").strip(),
+            all_drives=os.environ.get("GOG_ALL_DRIVES", "true").strip().lower() in ("1", "true", "yes"),
+        )
+
+    @property
+    def state_path(self) -> Path:
+        return self.raw_dir / "_state.json"
+
+    def export_for(self, mime: str) -> tuple[str | None, str] | None:
+        """Native Google types -> (export_format, extension); None for binary files.
+        xlsx (not csv) for Sheets: csv only exports the first tab; clean reads every sheet."""
+        table = {
+            "application/vnd.google-apps.document": (self.docs_format, "." + self.docs_format),
+            "application/vnd.google-apps.spreadsheet": ("xlsx", ".xlsx"),
+            "application/vnd.google-apps.presentation": ("pdf", ".pdf"),
+        }
+        return table.get(mime)
+
+
+class GogError(RuntimeError):
+    pass
+
+
+def log(msg: str) -> None:
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(f"[drive-fetch {ts}] {msg}", flush=True)
+
+
+# ── gog wrapper ──────────────────────────────────────────────────────────────
+def gog(cfg: Config, *args: str, json_out: bool = True) -> object:
+    """Runs `gog ...` (+ -a account, --no-input). With json_out, parses stdout."""
+    cmd = [cfg.gog_bin, *args, "--no-input"]
+    if cfg.account:
+        cmd += ["-a", cfg.account]
+    if json_out:
+        cmd += ["--json"]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        raise GogError(f"`gog {' '.join(args)}` rc={res.returncode}: {res.stderr.strip()[:600]}")
+    if not json_out:
+        return res.stdout
+    try:
+        return json.loads(res.stdout or "null")
+    except json.JSONDecodeError as e:
+        raise GogError(f"`gog {' '.join(args)}` non-JSON output: {e}; head={res.stdout[:200]!r}") from e
+
+
+def _items(payload: object) -> list[dict]:
+    """Extracts the file list from gog's JSON defensively (envelope shapes vary by version)."""
+    if isinstance(payload, list):
+        return [x for x in payload if isinstance(x, dict)]
+    if isinstance(payload, dict):
+        for key in ("files", "items", "entries", "result", "results", "data"):
+            v = payload.get(key)
+            if isinstance(v, list):
+                return [x for x in v if isinstance(x, dict)]
+        if payload.get("id") or payload.get("fileId"):  # a single object
+            return [payload]
+    return []
+
+
+def _field(d: dict, *names: str, default=None):
+    for n in names:
+        if d.get(n) not in (None, ""):
+            return d[n]
+    return default
+
+
+def file_id(d: dict) -> str | None:
+    return _field(d, "id", "fileId")
+
+
+def fingerprint(d: dict) -> str:
+    """Change fingerprint: modifiedTime (+ size/md5 as reinforcement when present)."""
+    mt = _field(d, "modifiedTime", "modified", "modifiedDate", default="")
+    sz = _field(d, "size", "fileSize", default="")
+    md5 = _field(d, "md5Checksum", "md5", default="")
+    return f"{mt}|{sz}|{md5}"
+
+
+def parents(d: dict) -> list[str]:
+    """Drive parents as a list of ids, tolerating different gog envelopes."""
+    raw = _field(d, "parents", "parentIds", "parentId", default=[])
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, list):
+        out: list[str] = []
+        for p in raw:
+            if isinstance(p, str):
+                out.append(p)
+            elif isinstance(p, dict):
+                pid = _field(p, "id", "fileId")
+                if pid:
+                    out.append(pid)
+        return out
+    return []
+
+
+def _path_join(parent: str, name: str) -> str:
+    return f"{parent.rstrip('/')}/{name}".replace("//", "/")
+
+
+def build_lineage(cfg: Config, items: list[dict], root_id: str) -> dict[str, dict]:
+    """Derives drivePath/parentPath from the recursive inventory. Respects explicit path fields
+    when gog provides them; falls back to the root when an ancestor is missing (never blocks)."""
+    root_label = cfg.folder or root_id
+    by_id = {fid: d for d in items if (fid := file_id(d))}
+    memo: dict[str, str] = {root_id: f"/{root_label}"}
+
+    def path_for(fid: str) -> str:
+        if fid in memo:
+            return memo[fid]
+        d = by_id.get(fid)
+        if not d:
+            return f"/{root_label}"
+        explicit = _field(d, "path", "drivePath", "fullPath")
+        if isinstance(explicit, str) and explicit.startswith("/"):
+            memo[fid] = explicit
+            return explicit
+        name = _field(d, "name", "title", default=fid)
+        ps = parents(d)
+        parent_id = ps[0] if ps else root_id
+        parent_path = path_for(parent_id) if parent_id != fid else f"/{root_label}"
+        memo[fid] = _path_join(parent_path, name)
+        return memo[fid]
+
+    out: dict[str, dict] = {}
+    for d in items:
+        fid = file_id(d)
+        if not fid:
+            continue
+        ps = parents(d)
+        parent_id = ps[0] if ps else root_id
+        out[fid] = {
+            "drivePath": path_for(fid),
+            "parentPath": path_for(parent_id),
+            "parentIds": ps,
+        }
+    return out
+
+
+# ── state (manifest + atomic writes) ─────────────────────────────────────────
+def load_state(cfg: Config) -> dict:
+    if cfg.state_path.exists():
+        try:
+            return json.loads(cfg.state_path.read_text())
+        except json.JSONDecodeError:
+            log("_state.json corrupted, re-initializing")
+    return {"files": {}}
+
+
+def write_atomic(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)  # atomic on the same filesystem
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def save_state(cfg: Config, state: dict) -> None:
+    write_atomic(cfg.state_path, json.dumps(state, indent=2, ensure_ascii=False).encode())
+
+
+# ── download ─────────────────────────────────────────────────────────────────
+def ext_for(cfg: Config, d: dict, mime: str) -> tuple[str | None, str]:
+    """(export_format|None, extension). Native Google types export; binaries as-is."""
+    exported = cfg.export_for(mime)
+    if exported:
+        return exported
+    name = _field(d, "name", "title", default="")
+    return None, (os.path.splitext(name)[1] or ".bin")
+
+
+def merge_sidecar_lineage(cfg: Config, fid: str, lineage: dict) -> None:
+    """Adds lineage paths to an existing sidecar without touching the rest of its metadata."""
+    sidecar = cfg.raw_dir / f"{fid}.json"
+    meta: object = {}
+    if sidecar.exists():
+        try:
+            meta = json.loads(sidecar.read_text())
+        except json.JSONDecodeError:
+            meta = {}
+    if not isinstance(meta, dict):
+        meta = {}
+    meta.update(lineage)
+    write_atomic(sidecar, json.dumps(meta, indent=2, ensure_ascii=False).encode())
+
+
+def download_file(cfg: Config, d: dict, fid: str, mime: str, lineage: dict) -> str:
+    """Downloads to raw/<fid><ext> (atomically) + a metadata sidecar. Returns the local name."""
+    fmt, ext = ext_for(cfg, d, mime)
+    out = cfg.raw_dir / f"{fid}{ext}"
+    tmp = cfg.raw_dir / f".tmp-{fid}{ext}"
+    args = ["drive", "download", fid, "--out", str(tmp)]
+    if fmt:
+        args += ["--format", fmt]
+    gog(cfg, *args, json_out=False)
+    os.replace(tmp, out)
+    # sidecar (Files.Get) — clean uses it for frontmatter/lineage. gog wraps it in {"file": {...}}.
+    meta = gog(cfg, "drive", "get", fid)
+    if isinstance(meta, dict) and isinstance(meta.get("file"), dict):
+        meta = meta["file"]
+    if isinstance(meta, dict):
+        meta.update(lineage)
+    write_atomic(cfg.raw_dir / f"{fid}.json", json.dumps(meta, indent=2, ensure_ascii=False).encode())
+    return out.name
+
+
+def remove_local(cfg: Config, entry: dict, fid: str) -> None:
+    for p in (entry.get("localPath"), f"{fid}.json"):
+        if p and (cfg.raw_dir / p).exists():
+            (cfg.raw_dir / p).unlink()
+
+
+# ── folder resolution (name -> id) ───────────────────────────────────────────
+def resolve_folder_id(cfg: Config) -> str:
+    """folder_id wins; otherwise resolve the folder name -> id via search."""
+    if cfg.folder_id:
+        return cfg.folder_id
+    if not cfg.folder:
+        raise GogError("set DRIVE_FOLDER (name) or DRIVE_FOLDER_ID")
+    safe = cfg.folder.replace("\\", "\\\\").replace("'", "\\'")
+    q = f"name = '{safe}' and mimeType = '{FOLDER_MIME}' and trashed = false"
+    matches = _items(gog(cfg, "drive", "search", q, "--results-only"))
+    exact = [m for m in matches if _field(m, "name", "title") == cfg.folder]
+    matches = exact or matches
+    if not matches:
+        raise GogError(f"no folder named '{cfg.folder}' found")
+    if len(matches) > 1:
+        opts = ", ".join(f"{_field(m, 'name')}={file_id(m)}" for m in matches[:8])
+        raise GogError(f"'{cfg.folder}' is ambiguous ({len(matches)} folders): {opts}. "
+                       f"Set DRIVE_FOLDER_ID to disambiguate.")
+    fid = file_id(matches[0])
+    log(f"folder '{cfg.folder}' -> id {fid}")
+    return fid
+
+
+# ── incremental sync ─────────────────────────────────────────────────────────
+def inventory(cfg: Config, folder_id: str) -> list[dict]:
+    payload = gog(
+        cfg, "drive", "inventory",
+        "--parent", folder_id,
+        "--depth", "0", "--max", "0",  # 0 = unlimited (recursive, everything)
+        *(["--all-drives"] if cfg.all_drives else ["--no-all-drives"]),
+        "--results-only",
+    )
+    return _items(payload)
+
+
+def sync_once(cfg: Config, folder_id: str) -> dict:
+    state = load_state(cfg)
+    manifest: dict = state.setdefault("files", {})
+    items = inventory(cfg, folder_id)
+    lineage_by_id = build_lineage(cfg, items, folder_id)
+
+    seen: set[str] = set()
+    added = changed = skipped = metadata_updated = 0
+    for d in items:
+        mime = _field(d, "mimeType", "mime", default="")
+        if mime == FOLDER_MIME:
+            continue  # folders are not downloaded
+        fid = file_id(d)
+        if not fid:
+            continue
+        seen.add(fid)
+        fp = fingerprint(d)
+        prev = manifest.get(fid)
+        lineage = lineage_by_id.get(fid, {
+            "drivePath": f"/{cfg.folder or folder_id}/{_field(d, 'name', 'title', default=fid)}",
+            "parentPath": f"/{cfg.folder or folder_id}",
+            "parentIds": parents(d),
+        })
+        if prev and prev.get("fingerprint") == fp and (cfg.raw_dir / (prev.get("localPath") or "")).exists():
+            # Backfill/refresh path metadata without redownloading unchanged files.
+            touched = False
+            for k, v in lineage.items():
+                if prev.get(k) != v:
+                    prev[k] = v
+                    touched = True
+            if touched:
+                metadata_updated += 1
+                merge_sidecar_lineage(cfg, fid, lineage)
+            skipped += 1
+            continue
+        # new or changed -> download + sidecar + update manifest (AFTER the file landed)
+        local = download_file(cfg, d, fid, mime, lineage)
+        manifest[fid] = {
+            "name": _field(d, "name", "title", default=""),
+            "mimeType": mime,
+            "fingerprint": fp,
+            "localPath": local,
+            **lineage,
+        }
+        changed += 1 if prev else 0
+        added += 0 if prev else 1
+
+    # deletions: in the manifest but no longer in the folder
+    removed = 0
+    for fid in list(manifest):
+        if fid not in seen:
+            remove_local(cfg, manifest[fid], fid)
+            del manifest[fid]
+            removed += 1
+
+    save_state(cfg, state)
+    return {"total": len(seen), "added": added, "changed": changed,
+            "skipped": skipped, "metadata_updated": metadata_updated,
+            "removed": removed}
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(prog="drive-fetch",
+                                     description="Mirror a Google Drive folder into raw/ (incremental, no LLM).")
+    parser.add_argument("--once", action="store_true", help="single sync pass instead of looping")
+    parser.add_argument("--loop", action="store_true", help="poll every POLL_INTERVAL_SECONDS (default)")
+    once = parser.parse_args(argv).once
+
+    cfg = Config.from_env()
+    if not (cfg.folder or cfg.folder_id):
+        log("ERROR: set DRIVE_FOLDER (name) or DRIVE_FOLDER_ID.")
+        return 2
+    cfg.raw_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        folder_id = resolve_folder_id(cfg)
+    except GogError as e:
+        log(f"ERROR resolving the folder: {e}")
+        return 2
+
+    log(f"start — folder={cfg.folder or '(id)'} id={folder_id} raw={cfg.raw_dir} "
+        f"interval={cfg.poll_seconds}s once={once} account={cfg.account or '(default)'}")
+    while True:
+        t0 = time.monotonic()
+        try:
+            s = sync_once(cfg, folder_id)
+            log(f"sync OK {s} ({time.monotonic() - t0:.1f}s)")
+        except GogError as e:
+            log(f"sync gog-error: {e}")  # doesn't kill the loop; retries next cycle
+        except Exception as e:  # noqa: BLE001
+            log(f"unexpected sync error: {e}")
+        if once:
+            break
+        time.sleep(cfg.poll_seconds)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

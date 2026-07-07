@@ -1,0 +1,36 @@
+# Secrets — never commit the real env (any stack: gbrain/, pipeline/).
+.env
+.env.*
+!.env.example
+
+# Google OAuth client secrets (gog / Drive) — NEVER commit. Rotate if leaked.
+client_secret*.json
+
+# Local raw mirror + state (the Drive cache; large, regenerable).
+raw/
+raw-drive/
+
+# TLS cert artifacts (e.g. from `tailscale cert`).
+*.crt
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.venv*/
+venv/
+
+# Editor / OS noise
+*.bak
+*.tmp
+.DS_Store
+
+# demo output (regenerable)
+examples/out/
+
+# eval harness output (regenerable)
+evals/out/

@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 480" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#8b949e"/>
+    </marker>
+    <marker id="arrv2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#a371f7"/>
+    </marker>
+    <marker id="arrf2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#f0883e"/>
+    </marker>
+    <filter id="glow2" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="7" flood-color="#8957e5" flood-opacity="0.55"/>
+    </filter>
+    <style>
+      .node   { fill:#161b22; stroke:#30363d; stroke-width:1.2; }
+      .agent  { fill:#1c1332; stroke:#8957e5; stroke-width:1.4; }
+      .guard  { fill:#06222a; stroke:#39c5cf; stroke-width:1.4; }
+      .ok     { fill:#0b1f12; stroke:#3fb950; stroke-width:1.3; }
+      .human  { fill:#201a02; stroke:#bb8009; stroke-width:1.3; }
+      .chip   { fill:#0d1117; stroke:#6e40c9; stroke-width:1; }
+      .title  { fill:#e6edf3; font-size:15px; font-weight:600; text-anchor:middle; }
+      .titleM { fill:#e6edf3; font-size:14px; font-weight:600; text-anchor:middle; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .tag    { fill:#8b949e; font-size:10.5px; text-anchor:middle; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .tagA   { fill:#c9b3f5; font-size:10.5px; text-anchor:middle; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .tagC   { fill:#7ee2eb; font-size:10.5px; text-anchor:middle; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .tagG   { fill:#7ee787; font-size:10.5px; text-anchor:middle; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .tagH   { fill:#e3b341; font-size:10.5px; text-anchor:middle; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .chipT  { fill:#c9b3f5; font-size:10px; text-anchor:middle; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .edge   { stroke:#8b949e; stroke-width:1.5; fill:none; }
+      .edgeA  { stroke:#a371f7; stroke-width:1.4; fill:none; stroke-dasharray:5 4; }
+      .edgeF  { stroke:#f0883e; stroke-width:1.5; fill:none; stroke-dasharray:6 4; }
+      .elab   { fill:#8b949e; font-size:10.5px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .elabA  { fill:#c9b3f5; font-size:10.5px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .elabF  { fill:#f0883e; font-size:11px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .sect   { fill:#6e7681; font-size:11px; font-weight:600; letter-spacing:2.5px; }
+    </style>
+  </defs>
+
+  <rect x="1" y="1" width="1038" height="478" rx="18" fill="#0d1117" stroke="#30363d" stroke-width="1.5"/>
+
+  <text x="26" y="46" class="sect">THE CONTROL LOOP · LLM WRITES, CODE VERIFIES</text>
+
+  <!-- retry arc (behind nodes) -->
+  <path class="edgeF" d="M 610 118 C 575 58, 425 58, 394 104" marker-end="url(#arrf2)"/>
+  <text x="502" y="66" class="elabF" text-anchor="middle">fail → verifier findings · 1 corrective retry</text>
+
+  <!-- main row -->
+  <rect class="node" x="24" y="120" width="170" height="64" rx="10"/>
+  <text x="109" y="146" class="title">extractor</text>
+  <text x="109" y="164" class="tag">code · pdf / sheets / docx</text>
+
+  <rect class="agent" x="250" y="108" width="220" height="88" rx="10" filter="url(#glow2)"/>
+  <text x="360" y="134" class="title">worker agent</text>
+  <text x="360" y="151" class="tagA">structured outputs</text>
+  <rect class="chip" x="272" y="162" width="94" height="21" rx="10"/>
+  <text x="319" y="176" class="chipT">read_more()</text>
+  <rect class="chip" x="378" y="162" width="60" height="21" rx="10"/>
+  <text x="408" y="176" class="chipT">ocr()</text>
+  <text x="360" y="216" class="elab" text-anchor="middle">budgets: ≤6 requests · ≤4 tool calls</text>
+
+  <rect class="guard" x="530" y="120" width="200" height="64" rx="10"/>
+  <text x="630" y="146" class="title">verifier</text>
+  <text x="630" y="164" class="tagC">pure code · cannot hallucinate</text>
+
+  <rect class="ok" x="790" y="120" width="160" height="64" rx="10"/>
+  <text x="870" y="146" class="titleM">page.md</text>
+  <text x="870" y="164" class="tagG">verification: verified</text>
+
+  <line class="edge" x1="194" y1="152" x2="246" y2="152" marker-end="url(#arr2)"/>
+  <text x="220" y="142" class="elab" text-anchor="middle">text</text>
+  <line class="edge" x1="470" y1="152" x2="526" y2="152" marker-end="url(#arr2)"/>
+  <text x="498" y="142" class="elab" text-anchor="middle">draft</text>
+  <line class="edge" x1="730" y1="152" x2="786" y2="152" marker-end="url(#arr2)"/>
+  <text x="758" y="142" class="elab" text-anchor="middle">pass</text>
+
+  <!-- supervisor lane -->
+  <line class="edgeA" x1="630" y1="184" x2="576" y2="326" marker-end="url(#arrv2)"/>
+  <text x="622" y="262" class="elabA">telemetry</text>
+  <line class="edgeA" x1="452" y1="330" x2="366" y2="200" marker-end="url(#arrv2)"/>
+  <text x="396" y="262" class="elabA" text-anchor="end">playbook ≤1500 chars</text>
+
+  <rect class="agent" x="430" y="330" width="220" height="68" rx="10" filter="url(#glow2)"/>
+  <text x="540" y="357" class="title">supervisor agent</text>
+  <text x="540" y="376" class="tagA">diagnose · audit ≤5 · requeue ≤20</text>
+
+  <line class="edge" x1="650" y1="364" x2="716" y2="364" marker-end="url(#arr2)"/>
+  <rect class="human" x="720" y="340" width="180" height="48" rx="24"/>
+  <text x="810" y="361" class="titleM" font-size="13">ops-report.md</text>
+  <text x="810" y="378" class="tagH">human on the loop</text>
+
+  <!-- legend -->
+  <g transform="translate(26,446)">
+    <rect x="0" y="-9" width="12" height="12" rx="3" fill="#1c1332" stroke="#8957e5" stroke-width="1.2"/>
+    <text x="20" y="1" class="elab">agents (bounded)</text>
+    <rect x="160" y="-9" width="12" height="12" rx="3" fill="#06222a" stroke="#39c5cf" stroke-width="1.2"/>
+    <text x="180" y="1" class="elab">deterministic guard</text>
+    <rect x="340" y="-9" width="12" height="12" rx="3" fill="#0b1f12" stroke="#3fb950" stroke-width="1.2"/>
+    <text x="360" y="1" class="elab">verified artifact</text>
+    <rect x="490" y="-9" width="12" height="12" rx="6" fill="#201a02" stroke="#bb8009" stroke-width="1.2"/>
+    <text x="510" y="1" class="elab">human</text>
+  </g>
+</svg>

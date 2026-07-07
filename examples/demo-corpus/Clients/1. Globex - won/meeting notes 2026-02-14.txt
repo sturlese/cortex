@@ -1,0 +1,4 @@
+Meeting notes, 2026-02-14. Attendees: our account team and Globex ops.
+
+Globex asked for SSO support before the renewal. Globex confirmed budget approval.
+Action items: send security whitepaper; schedule technical deep-dive in March.

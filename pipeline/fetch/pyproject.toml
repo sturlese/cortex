@@ -1,0 +1,14 @@
+[project]
+name = "fetch"
+version = "0.1.0"
+description = "Download stage: mirrors a Google Drive folder to raw/ via the gog CLI. Deterministic, no LLM."
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--cov --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*"]

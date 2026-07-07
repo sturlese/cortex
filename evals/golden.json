@@ -1,0 +1,50 @@
+{
+  "_comment": "Golden expectations for the offline eval harness (run_evals.py). The corpus is examples/demo-corpus; every id/path below is deterministic (content-derived), so any drift is a real regression.",
+  "taxonomy": {
+    "./Clients/1. Globex - won/Quarterly Report Q1 2026.md": { "type": "reports", "verdict": "IN" },
+    "./Clients/1. Globex - won/meeting notes 2026-02-14.txt": { "type": "meeting-minutes", "verdict": "IN" },
+    "./Clients/2. Initech/KPI metrics 2026.csv": { "type": "reports", "verdict": "IN" },
+    "./Clients/2. Initech/NDA Initech.md": { "type": "legal-contracts", "verdict": "OUT" },
+    "./Finance/Quarterly Report Q1 2026 (copy).md": { "type": "reports", "verdict": "IN" },
+    "./Finance/invoice-0231.md": { "type": "finance-accounting", "verdict": "OUT" },
+    "./Pipeline/Evaluating/Hooli/pitch deck.md": { "type": "presentations", "verdict": "IN" },
+    "./Product/Roadmap 2026.md": { "type": "product-docs", "verdict": "IN" },
+    "./Product/research/benchmark study.md": { "type": "research", "verdict": "MAYBE" },
+    "./Sales/Strategy planning 2026.md": { "type": "strategy", "verdict": "IN" },
+    "./Sales/web/style.css": { "type": "web-assets", "verdict": "OUT" }
+  },
+  "manifest": [
+    "./Clients/1. Globex - won/Quarterly Report Q1 2026.md",
+    "./Clients/1. Globex - won/meeting notes 2026-02-14.txt",
+    "./Clients/2. Initech/KPI metrics 2026.csv",
+    "./Pipeline/Evaluating/Hooli/pitch deck.md",
+    "./Product/Roadmap 2026.md",
+    "./Product/research/benchmark study.md",
+    "./Sales/Strategy planning 2026.md"
+  ],
+  "pages": {
+    "entities/globex/quarterly-report-q1-2026-4099bc.md": [
+      "entity: globex", "entity_kind: tracked", "status: won", "period: 2026-Q1", "verification: verified"
+    ],
+    "entities/globex/meeting-notes-2026-02-14-3fb561.md": [
+      "entity: globex", "verification: verified"
+    ],
+    "entities/initech/kpi-metrics-2026-261367.md": [
+      "entity: initech", "representation: digest", "detail_in_source: true", "verification: verified"
+    ],
+    "prospects/hooli/pitch-deck-eb4cec.md": [
+      "entity: hooli", "entity_kind: prospect", "stage: Evaluating", "verification: verified"
+    ],
+    "units/product/benchmark-study-15f21e.md": [
+      "unit: Product", "verification: verified"
+    ],
+    "units/product/roadmap-2026-9e7390.md": [
+      "unit: Product", "verification: verified"
+    ],
+    "units/sales/strategy-planning-2026-280ed0.md": [
+      "unit: Sales", "verification: verified"
+    ]
+  },
+  "seeded_hallucination_doc": "Quarterly Report Q1 2026.md",
+  "graph": { "entities_total": 1, "node": "entities/organization/globex.md" }
+}

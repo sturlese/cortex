@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 440" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#8b949e"/>
+    </marker>
+    <marker id="arrv" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#a371f7"/>
+    </marker>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="7" flood-color="#8957e5" flood-opacity="0.55"/>
+    </filter>
+    <style>
+      .node   { fill:#161b22; stroke:#30363d; stroke-width:1.2; rx:10; }
+      .agent  { fill:#1c1332; stroke:#8957e5; stroke-width:1.4; rx:10; }
+      .store  { fill:#0d1117; stroke:#484f58; stroke-width:1.2; stroke-dasharray:5 4; rx:14; }
+      .human  { fill:#201a02; stroke:#bb8009; stroke-width:1.3; rx:24; }
+      .title  { fill:#e6edf3; font-size:15px; font-weight:600; text-anchor:middle; }
+      .titleM { fill:#e6edf3; font-size:14px; font-weight:600; text-anchor:middle; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .tag    { fill:#8b949e; font-size:10.5px; text-anchor:middle; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .tagA   { fill:#c9b3f5; font-size:10.5px; text-anchor:middle; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .tagH   { fill:#e3b341; font-size:10.5px; text-anchor:middle; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .edge   { stroke:#8b949e; stroke-width:1.5; fill:none; }
+      .edgeA  { stroke:#a371f7; stroke-width:1.4; fill:none; stroke-dasharray:5 4; }
+      .elab   { fill:#8b949e; font-size:10.5px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .elabA  { fill:#c9b3f5; font-size:10.5px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .sect   { fill:#6e7681; font-size:11px; font-weight:600; letter-spacing:2.5px; }
+    </style>
+  </defs>
+
+  <rect x="1" y="1" width="1038" height="438" rx="18" fill="#0d1117" stroke="#30363d" stroke-width="1.5"/>
+
+  <text x="26" y="46" class="sect">INGESTION PIPELINE · AIRGAPPED</text>
+  <text x="848" y="46" class="sect">BRAIN SERVER</text>
+
+  <!-- airgap divider -->
+  <line x1="828" y1="58" x2="828" y2="340" stroke="#6e7681" stroke-width="1" stroke-dasharray="3 5"/>
+  <text x="828" y="358" class="elab" text-anchor="middle">airgap</text>
+
+  <!-- row 1 -->
+  <rect class="node" x="24" y="80" width="120" height="58" rx="10"/>
+  <text x="84" y="104" class="title">Google Drive</text>
+  <text x="84" y="122" class="tag">source of truth</text>
+
+  <rect class="node" x="184" y="80" width="116" height="58" rx="10"/>
+  <text x="242" y="104" class="title">fetch</text>
+  <text x="242" y="122" class="tag">mirror · no LLM</text>
+
+  <rect class="store" x="340" y="80" width="96" height="58" rx="14"/>
+  <text x="388" y="113" class="titleM">raw/</text>
+
+  <rect class="agent" x="476" y="80" width="172" height="58" rx="10" filter="url(#glow)"/>
+  <text x="562" y="104" class="title">clean</text>
+  <text x="562" y="122" class="tagA">agentic workers</text>
+
+  <rect class="store" x="688" y="80" width="120" height="58" rx="14"/>
+  <text x="748" y="113" class="titleM">brain-md/</text>
+
+  <rect class="node" x="848" y="80" width="168" height="58" rx="10"/>
+  <text x="932" y="104" class="title">gbrain serve</text>
+  <text x="932" y="122" class="tag">MCP · OAuth scopes</text>
+
+  <line class="edge" x1="144" y1="109" x2="180" y2="109" marker-end="url(#arr)"/>
+  <line class="edge" x1="300" y1="109" x2="336" y2="109" marker-end="url(#arr)"/>
+  <line class="edge" x1="436" y1="109" x2="472" y2="109" marker-end="url(#arr)"/>
+  <line class="edge" x1="648" y1="109" x2="684" y2="109" marker-end="url(#arr)"/>
+  <line class="edge" x1="808" y1="109" x2="844" y2="109" marker-end="url(#arr)"/>
+
+  <!-- graph branch -->
+  <line class="edge" x1="748" y1="138" x2="748" y2="242" marker-end="url(#arr)"/>
+  <rect class="node" x="688" y="246" width="120" height="52" rx="10"/>
+  <text x="748" y="268" class="title">graph</text>
+  <text x="748" y="285" class="tag">wikilinks · no LLM</text>
+  <text x="748" y="318" class="elab" text-anchor="middle">→ brain-md-graphed/</text>
+
+  <!-- clients -->
+  <line class="edge" x1="932" y1="138" x2="932" y2="246" marker-end="url(#arr)"/>
+  <rect class="node" x="848" y="250" width="168" height="48" rx="24"/>
+  <text x="932" y="279" class="tag" font-size="12">Claude · ChatGPT · agents</text>
+
+  <!-- supervisor loop -->
+  <line class="edgeA" x1="520" y1="138" x2="520" y2="246" marker-end="url(#arrv)"/>
+  <text x="510" y="198" class="elabA" text-anchor="end">telemetry</text>
+  <line class="edgeA" x1="604" y1="250" x2="604" y2="142" marker-end="url(#arrv)"/>
+  <text x="614" y="198" class="elabA">playbook · requeues</text>
+
+  <rect class="agent" x="476" y="250" width="172" height="64" rx="10" filter="url(#glow)"/>
+  <text x="562" y="277" class="title">ops</text>
+  <text x="562" y="296" class="tagA">supervisor agent</text>
+
+  <!-- human report -->
+  <line class="edge" x1="472" y1="282" x2="424" y2="282" marker-end="url(#arr)"/>
+  <rect class="human" x="250" y="258" width="170" height="48" rx="24"/>
+  <text x="335" y="279" class="titleM" font-size="13">ops-report.md</text>
+  <text x="335" y="296" class="tagH">human on the loop</text>
+
+  <!-- legend -->
+  <g transform="translate(26,404)">
+    <rect x="0" y="-9" width="12" height="12" rx="3" fill="#1c1332" stroke="#8957e5" stroke-width="1.2"/>
+    <text x="20" y="1" class="elab">agents (bounded)</text>
+    <rect x="160" y="-9" width="12" height="12" rx="3" fill="#161b22" stroke="#30363d" stroke-width="1.2"/>
+    <text x="180" y="1" class="elab">deterministic code</text>
+    <rect x="330" y="-9" width="12" height="12" rx="6" fill="#0d1117" stroke="#484f58" stroke-dasharray="3 3" stroke-width="1.2"/>
+    <text x="350" y="1" class="elab">data at rest</text>
+    <rect x="460" y="-9" width="12" height="12" rx="6" fill="#201a02" stroke="#bb8009" stroke-width="1.2"/>
+    <text x="480" y="1" class="elab">human</text>
+  </g>
+</svg>
