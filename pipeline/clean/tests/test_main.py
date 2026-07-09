@@ -206,6 +206,47 @@ def test_run_once_deletes_page_when_source_disappears(env, monkeypatch):
     assert (env.root / "brain" / "general" / "B.md").exists()   # untouched
 
 
+def _writes_page_by_name():
+    """Fake process_one that writes the page at a path derived from the file's display name, so a
+    rename changes the page path (as the real slug does)."""
+    async def fake(doc, processor, raw, out, catalog=None):
+        rel = f"general/{doc['entry']['name']}.md"
+        os.makedirs(os.path.join(out, "general"), exist_ok=True)
+        with open(os.path.join(out, rel), "w") as f:
+            f.write(f"page {doc['fileId']}")
+        return {"fileId": doc["fileId"], "skipped": False, "method": "text",
+                "path": rel, "representation": "full", "usage": {}}
+    return fake
+
+
+def test_run_once_removes_orphan_page_on_rename(env, monkeypatch):
+    """Renaming a doc changes its slug; the previous page must be deleted, not left orphaned."""
+    monkeypatch.setattr(clean_main, "process_one", _writes_page_by_name())
+    asyncio.run(run_once(env.cfg))
+    assert (env.root / "brain" / "general" / "a.md.md").exists()
+
+    inv = json.loads((env.raw / "_state.json").read_text())
+    inv["files"]["A"]["name"] = "a-renamed.md"
+    (env.raw / "_state.json").write_text(json.dumps(inv))
+    (env.raw / "a.md").write_text("doc a edited")        # content change -> pending
+    asyncio.run(run_once(env.cfg))
+    assert not (env.root / "brain" / "general" / "a.md.md").exists()     # stale page removed
+    assert (env.root / "brain" / "general" / "a-renamed.md.md").exists()  # new page written
+
+
+def test_run_once_removes_page_when_doc_becomes_duplicate(env, monkeypatch):
+    """A previously-processed doc that turns into a duplicate must not leave its page behind."""
+    monkeypatch.setattr(clean_main, "process_one", _writes_page_by_name())
+    asyncio.run(run_once(env.cfg))
+    assert (env.root / "brain" / "general" / "b.md.md").exists()
+
+    (env.raw / "b.md").write_text("doc a")               # now identical to a.md -> duplicate
+    stats = asyncio.run(run_once(env.cfg))
+    assert stats["duplicates"] == 1
+    assert _state_of(env)["files"]["B"]["status"] == "duplicate"
+    assert not (env.root / "brain" / "general" / "b.md.md").exists()     # stale page removed
+
+
 def test_main_dry_run_is_noop(tmp_path, capsys):
     cfg = Settings(raw_dir=str(tmp_path), brain_md_dir=str(tmp_path / "b"),
                    state_dir=str(tmp_path / "s"), dry_run=True)

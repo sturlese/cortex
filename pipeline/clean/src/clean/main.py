@@ -21,7 +21,7 @@ def log(msg):
     print(f"[clean {datetime.datetime.now(datetime.UTC).isoformat()}] {msg}", flush=True)
 
 
-def dedup_pending(pending, state, inventory):
+def dedup_pending(pending, state, inventory, brain_md_dir=None):
     """Exact content dedup: a pending doc whose sha256 already has a processed page (or an earlier
     pending doc in this pass) becomes `duplicate` -> no LLM call, no page, state points at the
     canonical file id. Deterministic: existing processed entries win; within a pass, lowest id."""
@@ -42,6 +42,15 @@ def dedup_pending(pending, state, inventory):
         else:
             duplicates += 1
             e = doc["entry"]
+            # a previously-processed doc that turned into a duplicate leaves a stale page behind:
+            # remove it so brain-md doesn't keep outdated content the state no longer points at.
+            prev_path = (state["files"].get(doc["fileId"], {}).get("lastResult") or {}).get("path")
+            if brain_md_dir and prev_path:
+                try:
+                    os.remove(os.path.join(brain_md_dir, prev_path))
+                    log(f"DELETED page {prev_path} ({doc['fileId']} now a duplicate of {canon})")
+                except FileNotFoundError:
+                    pass
             state["files"][doc["fileId"]] = {
                 "name": e.get("name"), "localPath": e.get("localPath"), "rawHash": h,
                 "status": "duplicate", "duplicateOf": canon, "updatedAt": now,
@@ -60,7 +69,7 @@ async def run_once(cfg: Settings) -> dict:
 
     state = load_state(cfg.state_dir)
     pending = classify_pending(inventory, state, cfg.raw_dir)
-    pending, duplicates = dedup_pending(pending, state, inventory)
+    pending, duplicates = dedup_pending(pending, state, inventory, cfg.brain_md_dir)
     if cfg.max_docs > 0 and len(pending) > cfg.max_docs:
         log(f"limiting to {cfg.max_docs} docs (CLEAN_MAX_DOCS) out of {len(pending)} pending")
         pending = pending[: cfg.max_docs]
@@ -117,6 +126,16 @@ async def run_once(cfg: Settings) -> dict:
             try:
                 res = await process_one(doc, processor, cfg.raw_dir, cfg.brain_md_dir, catalog)
                 e = doc["entry"]
+                # a rename/move changes the page's slug or entity folder: delete the previous page
+                # so the stale copy (with outdated content) doesn't linger in brain-md forever.
+                old_path = (state["files"].get(file_id, {}).get("lastResult") or {}).get("path")
+                new_path = res.get("path")
+                if old_path and old_path != new_path:
+                    try:
+                        os.remove(os.path.join(cfg.brain_md_dir, old_path))
+                        log(f"DELETED stale page {old_path} (renamed/moved -> {new_path})")
+                    except FileNotFoundError:
+                        pass
                 state["files"][file_id] = {
                     "name": e.get("name"), "mimeType": e.get("mimeType"), "localPath": e.get("localPath"),
                     "sourceUri": e.get("sourceUri"), "rawHash": doc["rawHash"],
