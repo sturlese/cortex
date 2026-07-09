@@ -9,15 +9,23 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/examples/out"
-VENV="$OUT/.venv"
+VENV="$ROOT/examples/.venv"        # OUTSIDE $OUT so it survives the clean below (truly one-time)
 PY="$VENV/bin/python"
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-echo "==> [0/5] Python env (one-time; ~a minute)"
-python3 -m venv "$VENV"
-"$VENV/bin/pip" -q install -r "$ROOT/pipeline/clean/requirements.txt" -r "$ROOT/pipeline/graph/requirements.txt"
+# Bootstrap the venv once; a `.deps-ok` stamp (written only after a successful install) means an
+# interrupted install is retried instead of leaving a broken, deps-less venv behind.
+if [ ! -f "$VENV/.deps-ok" ]; then
+  echo "==> [0/5] Python env (one-time; ~a minute)"
+  rm -rf "$VENV"
+  python3 -m venv "$VENV"
+  "$VENV/bin/pip" -q install -r "$ROOT/pipeline/clean/requirements.txt" -r "$ROOT/pipeline/graph/requirements.txt"
+  touch "$VENV/.deps-ok"
+else
+  echo "==> [0/5] Python env (cached)"
+fi
 
 echo "==> [1/5] corpus: enumerate -> classify -> curate -> trim -> inventory"
 export PYTHONPATH="$ROOT/pipeline/corpus/src"

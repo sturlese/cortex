@@ -91,10 +91,18 @@ def eval_clean_and_trust(work: Path, raw: Path, brain: Path, state_dir: Path) ->
     files = json.loads((state_dir / "clean-state.json").read_text())["files"]
     processed = {fid: f for fid, f in files.items() if f.get("status") == "processed"}
     seeded = [f for f in processed.values() if (f.get("lastResult") or {}).get("retried")]
-    caught = (len(seeded) == 1
-              and GOLDEN["seeded_hallucination_doc"] in seeded[0].get("name", "")
-              and seeded[0]["lastResult"]["verification"] == "verified")
-    metric("trust: seeded hallucination caught + corrected", f"{len(seeded)} retry", caught)
+    if os.environ.get("CLEAN_LLM", "fake-flawed") == "fake-flawed":
+        # the offline demo backend deliberately injects one hallucination: it must be caught + fixed
+        caught = (len(seeded) == 1
+                  and GOLDEN["seeded_hallucination_doc"] in seeded[0].get("name", "")
+                  and seeded[0]["lastResult"]["verification"] == "verified")
+        metric("trust: seeded hallucination caught + corrected", f"{len(seeded)} retry", caught)
+    else:
+        # a real (or plain-fake) model has nothing seeded to catch; require instead that the loop
+        # left no page in a failed verdict — so this metric is meaningful for a live-model eval.
+        failed = [f for f in processed.values()
+                  if (f.get("lastResult") or {}).get("verification") == "failed"]
+        metric("trust: no unresolved verification failures", f"{len(failed)} failed", not failed)
 
     false_pos = [f["name"] for f in processed.values()
                  if (f.get("lastResult") or {}).get("verification") != "verified"
