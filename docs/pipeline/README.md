@@ -18,6 +18,7 @@ One compose stack (`pipeline/docker-compose.yml`, project `cortex-pipeline`) wit
 ```bash
 cd pipeline
 cp .env.example .env      # fill in (see the file's comments)
+docker volume create brain-md && docker volume create brain-md-graphed   # one-time: shared external volumes
 docker compose build
 docker compose up -d      # fetch + clean + gotenberg
 

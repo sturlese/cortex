@@ -14,10 +14,15 @@ Any small VM works (the reference setup ran both stacks on ~4 GB RAM).
 ```bash
 cd pipeline
 cp .env.example .env       # DRIVE_FOLDER, gog keyring, OPENAI_API_KEY (see comments in the file)
+docker volume create brain-md && docker volume create brain-md-graphed   # one-time: shared external volumes
 docker compose build
 docker compose up -d
 docker compose logs -f clean
 ```
+
+The `brain-md` / `brain-md-graphed` volumes are declared `external` (they are the airgap shared
+with the gbrain stack), so `docker compose up` aborts with `external volume "brain-md" not found`
+until you create them once with the command above.
 
 One-time seeds (volumes):
 

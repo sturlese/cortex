@@ -36,8 +36,13 @@ cp .env.example .env      # fill in: DB URLs, OPENAI_API_KEY, TS_AUTHKEY, admin 
 make up
 make doctor               # checks dims / RLS / embeddings against the DB
 make ts-funnel            # shows the public URL once the Funnel is live
+docker volume create brain-md && docker volume create brain-md-graphed   # one-time (shared with the pipeline stack)
 docker compose --profile ingest up -d ingest    # start syncing brain-md
 ```
+
+The `ingest` profile mounts the external `brain-md` / `brain-md-graphed` volumes, so create them
+once (as above) if you haven't already from the pipeline stack — otherwise the command aborts with
+`external volume "brain-md" not found`.
 
 `gbrain-serve` applies schema migrations on boot (idempotent). Success looks like
 `N migration(s) applied` + `Engine: postgres` + a healthy container.
