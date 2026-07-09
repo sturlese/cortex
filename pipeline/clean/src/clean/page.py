@@ -16,8 +16,25 @@ def slugify(text: str) -> str:
     return text[:80] or "untitled"
 
 
-def _yaml(v: str) -> str:
-    return f'"{v}"' if re.search(r'[:\#\[\]{}",]', v) else v
+# A scalar is safe to emit as a plain (unquoted) YAML string only when it starts with an
+# alphanumeric and contains no YAML indicator/special character. Anything else — quotes, colons,
+# brackets, leading indicators (@ * & ! | > % ? -), newlines, YAML reserved words (true/on/null…)
+# or a number-looking token — must be emitted as a properly escaped double-quoted scalar, or the
+# page's frontmatter (treated as an API by the brain/graph stages) becomes unparseable.
+_PLAIN_YAML = re.compile(r"[A-Za-z0-9][\w .\-/]*", re.UNICODE)
+_YAML_RESERVED = {"true", "false", "null", "yes", "no", "on", "off", "none", "~"}
+_YAML_NUMBER = re.compile(r"[+-]?\d+(?:\.\d+)?")
+
+
+def _yaml(v) -> str:
+    s = str(v)
+    if (s and _PLAIN_YAML.fullmatch(s)
+            and s.lower() not in _YAML_RESERVED
+            and not _YAML_NUMBER.fullmatch(s)):
+        return s
+    esc = (s.replace("\\", "\\\\").replace('"', '\\"')
+           .replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r"))
+    return f'"{esc}"'
 
 
 def brain_path(entity: dict, filename: str, file_id: str):
@@ -50,11 +67,11 @@ def build_page(out: ProcessorOutput, lineage: dict, entity: dict = None, verific
     fm = ["---", f"type: {m.type}", f"title: {_yaml(m.title)}"]
     if m.date:
         fm.append(f"date: {m.date}")
-    fm.append(f"tags: [{', '.join(m.tags)}]")
+    fm.append(f"tags: [{', '.join(_yaml(t) for t in m.tags)}]")
     fm += [
         f'id: "drive:{lineage["fileId"]}"',
         f'source_file_id: {lineage["fileId"]}',
-        f'source_uri: "{lineage["sourceUri"]}"',
+        f'source_uri: {_yaml(lineage["sourceUri"])}',
         f"source_kind: {'local' if lineage['sourceUri'].startswith('local://') else 'google-drive'}",
         f"source_name: {_yaml(lineage.get('name', ''))}",
         f'extracted_at: "{lineage["extractedAt"]}"',

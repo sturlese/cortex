@@ -122,6 +122,32 @@ def test_build_page_without_verification_has_no_field():
     assert "verification:" not in page
 
 
+def test_build_page_frontmatter_survives_hostile_strings():
+    """Titles/filenames/tags/mentions with YAML-special characters must still yield PARSEABLE
+    frontmatter — the page contract is consumed as YAML by the brain and graph stages."""
+    import yaml
+
+    out = _out(
+        metadata=PageMetadata(
+            title='Project "Phoenix": Q1 plan',            # inner quotes + colon
+            type="report",
+            tags=["a: b", "c,d", "normal"],                 # colon and comma in tags
+            mentions=[Mention(name='AT&T "wireless"', type="company"),
+                      Mention(name="On", type="company")],  # "On" is a YAML 1.1 boolean if unquoted
+        ),
+        body_markdown="body",
+    )
+    page = build_page(out, _lineage(name='*URGENT* "payroll".xlsx',
+                                    sourceUri='local://Clients/a"b.md'), {})
+    fm_text = page.split("\n---\n", 1)[0].removeprefix("---\n")
+    fm = yaml.safe_load(fm_text)                            # must not raise
+    assert fm["title"] == 'Project "Phoenix": Q1 plan'
+    assert fm["tags"] == ["a: b", "c,d", "normal"]
+    names = [m["name"] for m in fm["mentions"]]
+    assert 'AT&T "wireless"' in names
+    assert "On" in names                                    # preserved as the string "On", not True
+
+
 def test_write_page_atomic(tmp_path):
     rel = write_page(str(tmp_path), "entities/initech", "doc-abc123", "content")
     assert rel == "entities/initech/doc-abc123.md"
