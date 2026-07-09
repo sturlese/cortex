@@ -68,3 +68,29 @@ def test_classify_pending_new_changed_error_deleted(tmp_path):
     by_id = {p["fileId"]: p["reason"] for p in pending}
     assert by_id == {"A": "new", "C": "changed", "G": "deleted"}
 
+
+def test_classify_pending_reprocesses_restored_after_delete(tmp_path):
+    """A file deleted (its page removed) that reappears with the SAME bytes must be regenerated."""
+    raw = str(tmp_path)
+    _touch(raw, "a.pdf", "v1")
+    h = file_sha256(os.path.join(raw, "a.pdf"))
+    inventory = {"A": {"localPath": "a.pdf"}}
+    state = {"files": {"A": {"rawHash": h, "status": "deleted"}}}
+    pending = classify_pending(inventory, state, raw)
+    assert [p["fileId"] for p in pending] == ["A"]
+
+
+def test_classify_pending_promotes_orphaned_duplicate(tmp_path):
+    """When the canonical of a duplicate leaves the inventory, the duplicate must be reprocessed
+    so the content it still holds gets its own page (otherwise it is lost forever)."""
+    raw = str(tmp_path)
+    _touch(raw, "b.pdf", "shared")
+    h = file_sha256(os.path.join(raw, "b.pdf"))
+    inventory = {"B": {"localPath": "b.pdf"}}          # canonical "A" is gone from Drive
+    state = {"files": {"B": {"rawHash": h, "status": "duplicate", "duplicateOf": "A"}}}
+    pending = classify_pending(inventory, state, raw)
+    assert [p["fileId"] for p in pending] == ["B"]
+    # but while the canonical is still present, the duplicate stays deduped (no churn)
+    inventory["A"] = {"localPath": "a.pdf"}
+    assert classify_pending(inventory, state, raw) == []  # B stays a duplicate, A missing on disk
+

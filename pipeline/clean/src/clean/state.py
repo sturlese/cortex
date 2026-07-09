@@ -45,7 +45,8 @@ def load_inventory(raw_dir):
 
 
 def classify_pending(inventory, state, raw_dir):
-    """Pending = new / changed (hash) / previous error / requeued by the supervisor / deleted."""
+    """Pending = new / changed (hash) / previous error / requeued / restored-after-delete /
+    orphaned-duplicate (its canonical is gone) / deleted."""
     pending, seen = [], set()
     for file_id, entry in inventory.items():
         seen.add(file_id)
@@ -55,7 +56,13 @@ def classify_pending(inventory, state, raw_dir):
             continue
         raw_hash = file_sha256(path)
         prev = state["files"].get(file_id)
-        if not prev or prev.get("rawHash") != raw_hash or prev.get("status") in ("error", "requeued"):
+        # A file whose source reappeared after a delete (its page was removed) must be regenerated
+        # even if the bytes are unchanged; a duplicate whose canonical left the inventory is now the
+        # only holder of that content and must get its own page.
+        orphaned_dup = prev and prev.get("status") == "duplicate" and prev.get("duplicateOf") not in inventory
+        if (not prev or prev.get("rawHash") != raw_hash
+                or prev.get("status") in ("error", "requeued", "deleted")
+                or orphaned_dup):
             pending.append({"fileId": file_id, "entry": entry, "rawHash": raw_hash,
                             "path": path, "reason": "changed" if prev else "new"})
     for file_id, f in state["files"].items():
