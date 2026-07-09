@@ -86,5 +86,25 @@ def test_load_conventions_missing_file_falls_back():
     assert load_conventions("/nonexistent.json") == DEFAULT_CONVENTIONS
 
 
+def test_status_marker_requires_whole_word_not_substring():
+    """A status marker must be the whole trailing segment, not a substring of the name."""
+    e = resolve_entity("/X/Clients/1. Acme - Wonderland/doc.pdf")
+    assert e["slug"] == "acme-wonderland"     # "won" not read out of "Wonderland"
+    assert e["status"] is None
+    won = resolve_entity("/X/Clients/2. Globex - won/doc.pdf")
+    assert won["slug"] == "globex" and won["status"] == "won"
+
+
+def test_whitespace_only_segment_does_not_crash():
+    """A blank folder name anywhere in a path must not raise — build_catalog runs over the whole
+    inventory outside any per-doc guard, so one such path would otherwise abort the entire pass."""
+    # blank segment before the anchor: must not crash and still resolve the entity
+    e = resolve_entity("/X/ /Clients/3. Acme/doc.pdf")
+    assert e["slug"] == "acme"
+    # blank segment between anchor and entity: must not crash (resolution may fall through)
+    build_catalog([("/X/Clients/ /3. Acme/doc.pdf", None),
+                   ("/X/ /Pipeline/Evaluating/Hooli/deck.pdf", None)])
+
+
 def test_slugify_strips_accents_and_symbols():
     assert slugify("Café & Co. (2024)") == "cafe-co-2024"

@@ -63,8 +63,11 @@ def _split_status(name: str, markers: list[str]):
     m = re.search(r"[-–(]\s*([^-–()]+?)\s*\)?\s*$", name)
     if m:
         candidate = m.group(1).strip().lower()
+        # The trailing segment is a status only when it IS a marker, not merely contains one:
+        # "Acme - archived" -> archived, but "Acme - Wonderland" / "Sun-Won Industries" keep their
+        # full name (substring matching wrongly read "won" out of "Wonderland"/"Won Industries").
         for marker in markers:
-            if marker in candidate:
+            if candidate == marker:
                 return name[: m.start()].strip(), marker
     return name, None
 
@@ -82,7 +85,8 @@ def _match_tracked(segs: list[str], conv: dict) -> dict | None:
     anchors = {a.lower() for a in conv["entity_anchors"]}
     non_entity = {n.lower() for n in conv["non_entity_names"]}
     for i, seg in enumerate(segs):
-        if seg.lower().split()[0] not in anchors and seg.lower() not in anchors:
+        first = (seg.lower().split() or [""])[0]   # tolerate whitespace-only segments
+        if first not in anchors and seg.lower() not in anchors:
             continue
         # entity is the first numbered child, allowing one year-ish intermediate folder
         for j in (i + 1, i + 2):
@@ -94,7 +98,7 @@ def _match_tracked(segs: list[str], conv: dict) -> dict | None:
             if not m:
                 continue
             raw = m.group(2).strip()
-            if _FILE_EXT.search(raw) or raw.lower().split()[0] in non_entity:
+            if _FILE_EXT.search(raw) or (raw.lower().split() or [""])[0] in non_entity:
                 break
             name, status = _split_status(raw, conv["status_markers"])
             return {"name": name, "slug": slugify(name), "kind": "tracked",
