@@ -31,16 +31,28 @@ def build_graph(in_dir: str, out_dir: str, min_mentions: int = 2) -> dict:
     )
 
     # pass 2: write docs (with wikilinks) + entity node pages
+    written: set[str] = set()
     for rel, text in docs:
         p = os.path.join(out_dir, rel)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             f.write(rewrite_doc(text, entities))
+        written.add(os.path.abspath(p))
     for e in entities.values():
         p = os.path.join(out_dir, e["slug"] + ".md")
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             f.write(render_node(e))
+        written.add(os.path.abspath(p))
+
+    # brain-md-graphed is a DERIVED, fully regenerable mirror: drop stale .md left from a previous
+    # run (source docs deleted upstream, or entity nodes now below the mention threshold) so
+    # deletion propagates end to end and the layer never accumulates orphans.
+    removed = 0
+    for path in _walk_md(out_dir):
+        if os.path.abspath(path) not in written:
+            os.remove(path)
+            removed += 1
 
     return {
         "docs": len(docs),

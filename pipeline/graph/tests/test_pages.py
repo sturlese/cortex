@@ -47,3 +47,23 @@ def test_render_node():
     assert "type: company" in s
     assert "title: Initech" in s
     assert "aliases:" in s and "Initech, S.L." in s
+
+
+def test_render_node_hostile_names_stay_parseable():
+    """Entity names starting with a YAML indicator (@, &) or containing quotes must not break
+    the node page's frontmatter."""
+    import yaml
+    s = render_node({"type": "company", "title": "@AcmeCorp",
+                     "aliases": ["@AcmeCorp", 'Joe "Bo" Smith'], "mentions": 2})
+    fm = yaml.safe_load(s.split("\n---\n", 1)[0].removeprefix("---\n"))
+    assert fm["title"] == "@AcmeCorp"
+    assert 'Joe "Bo" Smith' in fm["aliases"]
+
+
+def test_page_mentions_tolerates_non_string_names():
+    """A mention name YAML-parsed as a bool/int (unquoted `On`, `1984`) must not crash the graph."""
+    doc = ('---\ntype: x\nmentions:\n  - { name: 1984, type: other }\n'
+           '  - { name: true, type: company }\n---\nbody\n')
+    ms = page_mentions(doc)
+    assert ("1984", "other") in ms          # numeric coerced to string, kept
+    assert all(not isinstance(n, bool) for n, _ in ms)   # accidental boolean dropped

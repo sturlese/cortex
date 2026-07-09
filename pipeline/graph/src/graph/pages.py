@@ -25,8 +25,18 @@ def page_mentions(text: str):
     out = []
     if isinstance(ms, list):
         for m in ms:
-            if isinstance(m, dict) and m.get("name"):
-                out.append((m["name"], m.get("type") or "other"))
+            if not isinstance(m, dict):
+                continue
+            name = m.get("name")
+            # YAML may parse an unquoted name like `On`/`1984` as a bool/int; str-coerce so it
+            # never crashes normalize(), but drop bools (almost always an accidental YAML boolean).
+            if name is None or isinstance(name, bool):
+                continue
+            name = str(name).strip()
+            if not name:
+                continue
+            typ = m.get("type")
+            out.append((name, str(typ) if typ else "other"))
     return out
 
 
@@ -46,8 +56,22 @@ def rewrite_doc(text: str, entities: dict) -> str:
     return out
 
 
-def _y(s: str) -> str:
-    return '"' + s.replace('"', "'") + '"' if re.search(r'[:#\[\]{}",]', s) else s
+_PLAIN_YAML = re.compile(r"[A-Za-z0-9][\w .\-/]*", re.UNICODE)
+_YAML_RESERVED = {"true", "false", "null", "yes", "no", "on", "off", "none", "~"}
+_YAML_NUMBER = re.compile(r"[+-]?\d+(?:\.\d+)?")
+
+
+def _y(v) -> str:
+    """Emit a YAML-safe scalar: plain when unambiguously safe, else an escaped double-quoted
+    scalar. Node pages must round-trip through yaml.safe_load (the frontmatter is a contract)."""
+    s = str(v)
+    if (s and _PLAIN_YAML.fullmatch(s)
+            and s.lower() not in _YAML_RESERVED
+            and not _YAML_NUMBER.fullmatch(s)):
+        return s
+    esc = (s.replace("\\", "\\\\").replace('"', '\\"')
+           .replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r"))
+    return f'"{esc}"'
 
 
 def render_node(entity: dict) -> str:
