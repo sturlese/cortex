@@ -42,6 +42,14 @@ def test_space_grouped_thousands_in_source():
     assert verify_page("about 1.2M", None, "budget: 1 200 000").verdict == "verified"
 
 
+def test_nbsp_grouped_thousands_in_source():
+    """European PDF extractions group thousands with a non-breaking / narrow space; a faithful
+    page rewriting them with commas must still verify (no false 'invented figure' flag)."""
+    assert verify_page("Revenue was 1,200,000 EUR.", None,
+                       "Chiffre d'affaires: 1 200 000 EUR").verdict == "verified"
+    assert verify_page("total 1,234,567", None, "Total 1 234 567").verdict == "verified"
+
+
 def test_percent_spacing_and_currency():
     assert verify_page("margin 40%", None, "marge de 40 %").verdict == "verified"
     assert verify_page("price €3.4M", None, "Preis: 3.400.000").verdict == "verified"

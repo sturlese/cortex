@@ -31,8 +31,12 @@ _TOKEN = re.compile(
     r"\s?(bn|[kKmMbB])?\s?(%)?"
     r"(?!\w)"
 )
-# space-grouped thousands ("1 200 000") — source side only, adds the combined value to the pool
-_SPACE_GROUP = re.compile(r"(?<!\d)(\d{1,3}(?: \d{3})+)(?!\d)")
+# space-grouped thousands ("1 200 000") — source side only, adds the combined value to the pool.
+# Accept non-breaking / narrow / thin spaces too: European PDF extractions group with U+00A0/U+202F,
+# and an ASCII-only pattern flagged faithful figures as invented.
+_GROUP_SPACE = "[    ]"
+_SPACE_GROUP = re.compile(rf"(?<!\d)(\d{{1,3}}(?:{_GROUP_SPACE}\d{{3}})+)(?!\d)")
+_SPACE_CHARS = "    "
 _MAGNITUDE = {"k": 1e3, "m": 1e6, "b": 1e9, "bn": 1e9}
 _MAX_LISTED = 12   # cap the lists persisted to frontmatter/state
 
@@ -80,7 +84,8 @@ def _candidate_pool(source_text: str, context: str) -> set[str]:
     for m in _TOKEN.finditer(hay):
         pool |= _interpretations(m.group(1), m.group(2))
     for m in _SPACE_GROUP.finditer(hay):
-        pool.add(_canon(float(m.group(1).replace(" ", ""))))
+        digits = "".join(ch for ch in m.group(1) if ch.isdigit())
+        pool.add(_canon(float(digits)))
     return pool
 
 
