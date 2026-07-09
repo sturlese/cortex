@@ -38,6 +38,19 @@ def test_classify_by_path_and_basename(tax):
     assert classify("./U/random-notes.txt", tax) == ("other", "MAYBE")
 
 
+def test_short_markers_use_word_boundaries(tax):
+    """'nda'/'spec' must match as words, not as substrings of agenda/Monday/calendar/prospects —
+    otherwise ordinary docs are silently discarded and sensitive ones leak in."""
+    # nda still catches real NDAs, but not agenda/Monday/calendar
+    assert classify("./Legal/NDA Acme.pdf", tax) == ("legal-contracts", "OUT")
+    assert classify("./Ops/team agenda.docx", tax) != ("legal-contracts", "OUT")
+    assert classify("./Ops/Monday standup notes.md", tax) != ("legal-contracts", "OUT")
+    assert classify("./Ops/holiday calendar.pdf", tax) != ("legal-contracts", "OUT")
+    # spec still catches specs, but 'prospects' no longer trips product-docs
+    assert classify("./Eng/api spec.md", tax) == ("product-docs", "IN")
+    assert classify("./Sales/Prospects/NDA - Acme.pdf", tax) == ("legal-contracts", "OUT")
+
+
 def test_classify_accent_insensitive(tax):
     typ, verdict = classify("./U/Comptabilité/invoice-münchen-2024.pdf", tax)
     assert (typ, verdict) == ("finance-accounting", "OUT")
