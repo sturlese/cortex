@@ -213,6 +213,72 @@ def test_sync_once_backfills_lineage_without_download(sync_env):
     assert manifest["A"]["drivePath"].endswith("/Docs/a.pdf")
 
 
+def test_sync_once_isolates_one_bad_download(sync_env, monkeypatch):
+    """One undownloadable file must not abort the pass: the good file lands, the bad one is counted
+    and retried next cycle, and no file is wrongly deleted."""
+    cfg, tmp_path, fake = sync_env
+    real_download = df.download_file
+
+    def flaky(cfg, d, fid, mime, lineage):
+        if fid == "B":
+            raise df.GogError("download disabled for this file")
+        return real_download(cfg, d, fid, mime, lineage)
+    monkeypatch.setattr(df, "download_file", flaky)
+
+    stats = df.sync_once(cfg, "root")
+    assert stats["errors"] == 1 and stats["added"] == 1
+    assert (tmp_path / "A.pdf").exists()
+    manifest = json.loads((tmp_path / "_state.json").read_text())["files"]
+    assert "A" in manifest and "B" not in manifest      # B not recorded -> retried next pass
+
+    monkeypatch.setattr(df, "download_file", real_download)
+    stats2 = df.sync_once(cfg, "root")
+    assert stats2["added"] == 1 and "B" in json.loads((tmp_path / "_state.json").read_text())["files"]
+
+
+def test_sync_once_unlinks_previous_local_on_rename(sync_env):
+    """A change that alters the local filename must not leave the old file orphaned."""
+    cfg, tmp_path, fake = sync_env
+    df.sync_once(cfg, "root")
+    assert (tmp_path / "B.xlsx").exists()
+    # B stops being a native sheet and becomes a binary .pdf (new fingerprint + new local name)
+    fake.items[2].update(mimeType="application/pdf", name="b.pdf", modifiedTime="t2")
+    df.sync_once(cfg, "root")
+    assert (tmp_path / "B.pdf").exists()
+    assert not (tmp_path / "B.xlsx").exists()           # stale local removed
+
+
+def test_sync_once_refuses_mass_deletion_on_empty_inventory(sync_env):
+    """rc=0 with zero items while the manifest is populated must NOT wipe the mirror."""
+    cfg, tmp_path, fake = sync_env
+    df.sync_once(cfg, "root")
+    fake.items.clear()                                   # inventory now returns nothing
+    with pytest.raises(df.GogError, match="mass deletion"):
+        df.sync_once(cfg, "root")
+    assert (tmp_path / "A.pdf").exists()                 # nothing deleted
+    assert json.loads((tmp_path / "_state.json").read_text())["files"]
+
+
+def test_once_returns_nonzero_when_pass_fails(tmp_path, monkeypatch):
+    monkeypatch.setenv("DRIVE_FOLDER", "Brain")
+    monkeypatch.setenv("RAW_DIR", str(tmp_path))
+    monkeypatch.setattr(df, "resolve_folder_id", lambda cfg: "root")
+    monkeypatch.setattr(df, "sync_once", lambda cfg, fid: (_ for _ in ()).throw(df.GogError("auth expired")))
+    assert df.main(["--once"]) == 1
+
+
+def test_sync_once_redownloads_when_localpath_missing(sync_env):
+    """A manifest entry with an empty localPath must be treated as absent (not vacuously present)."""
+    cfg, tmp_path, fake = sync_env
+    df.sync_once(cfg, "root")
+    state = json.loads((tmp_path / "_state.json").read_text())
+    state["files"]["A"]["localPath"] = ""               # older/foreign state with no local name
+    (tmp_path / "_state.json").write_text(json.dumps(state))
+    fake.downloads.clear()
+    df.sync_once(cfg, "root")
+    assert "A" in fake.downloads                          # re-downloaded instead of skipped
+
+
 def test_main_requires_folder_config(monkeypatch, capsys):
     monkeypatch.delenv("DRIVE_FOLDER", raising=False)
     monkeypatch.delenv("DRIVE_FOLDER_ID", raising=False)

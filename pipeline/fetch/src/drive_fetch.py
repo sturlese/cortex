@@ -320,10 +320,16 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
     state = load_state(cfg)
     manifest: dict = state.setdefault("files", {})
     items = inventory(cfg, folder_id)
+    # Sanity brake: rc=0 with zero items while we hold prior state is almost always a gog/API glitch
+    # (empty stdout, an envelope shape _items doesn't recognize, a trashed root), NOT a real mass
+    # deletion — refuse rather than wipe the whole mirror (which clean would then propagate).
+    if not items and manifest:
+        raise GogError(f"inventory returned 0 items but the manifest has {len(manifest)} entries — "
+                       "refusing to treat this as a mass deletion")
     lineage_by_id = build_lineage(cfg, items, folder_id)
 
     seen: set[str] = set()
-    added = changed = skipped = metadata_updated = 0
+    added = changed = skipped = metadata_updated = errors = 0
     for d in items:
         mime = _field(d, "mimeType", "mime", default="")
         if mime == FOLDER_MIME:
@@ -334,12 +340,13 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
         seen.add(fid)
         fp = fingerprint(d)
         prev = manifest.get(fid)
+        prev_local = prev.get("localPath") if prev else None
         lineage = lineage_by_id.get(fid, {
             "drivePath": f"/{cfg.folder or folder_id}/{_field(d, 'name', 'title', default=fid)}",
             "parentPath": f"/{cfg.folder or folder_id}",
             "parentIds": parents(d),
         })
-        if prev and prev.get("fingerprint") == fp and (cfg.raw_dir / (prev.get("localPath") or "")).exists():
+        if prev and prev.get("fingerprint") == fp and prev_local and (cfg.raw_dir / prev_local).exists():
             # Backfill/refresh path metadata without redownloading unchanged files.
             touched = False
             for k, v in lineage.items():
@@ -351,8 +358,19 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
                 merge_sidecar_lineage(cfg, fid, lineage)
             skipped += 1
             continue
-        # new or changed -> download + sidecar + update manifest (AFTER the file landed)
-        local = download_file(cfg, d, fid, mime, lineage)
+        # new or changed -> download + sidecar + update manifest (AFTER the file landed).
+        # Isolate per-file failures: an undownloadable file (Google Form, view-only, shortcut)
+        # must not abort the pass — it stays in `seen` (not deleted) and retries next cycle.
+        try:
+            local = download_file(cfg, d, fid, mime, lineage)
+        except GogError as e:
+            errors += 1
+            log(f"download failed for {fid} ({_field(d, 'name', 'title', default='?')}): {e}")
+            continue
+        # a rename or export-format change alters the local name: drop the previous file so its
+        # stale content isn't orphaned in the mirror (deletion later only removes the current name).
+        if prev_local and prev_local != local and (cfg.raw_dir / prev_local).exists():
+            (cfg.raw_dir / prev_local).unlink()
         manifest[fid] = {
             "name": _field(d, "name", "title", default=""),
             "mimeType": mime,
@@ -374,7 +392,7 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
     save_state(cfg, state)
     return {"total": len(seen), "added": added, "changed": changed,
             "skipped": skipped, "metadata_updated": metadata_updated,
-            "removed": removed}
+            "removed": removed, "errors": errors}
 
 
 def main(argv=None) -> int:
@@ -400,17 +418,19 @@ def main(argv=None) -> int:
         f"interval={cfg.poll_seconds}s once={once} account={cfg.account or '(default)'}")
     while True:
         t0 = time.monotonic()
+        failed = False
         try:
             s = sync_once(cfg, folder_id)
             log(f"sync OK {s} ({time.monotonic() - t0:.1f}s)")
         except GogError as e:
+            failed = True
             log(f"sync gog-error: {e}")  # doesn't kill the loop; retries next cycle
         except Exception as e:  # noqa: BLE001
+            failed = True
             log(f"unexpected sync error: {e}")
         if once:
-            break
+            return 1 if failed else 0   # a one-shot pass must report failure to the caller (cron/CI)
         time.sleep(cfg.poll_seconds)
-    return 0
 
 
 if __name__ == "__main__":
