@@ -14,9 +14,12 @@ GOTENBERG_URL = os.environ.get("GOTENBERG_URL", "http://gotenberg:3000")
 
 EXT_METHOD = {
     ".pdf": "pdf",
-    ".xlsx": "sheet", ".xlsm": "sheet", ".xls": "sheet", ".ods": "sheet", ".csv": "sheet", ".tsv": "sheet",
+    ".xlsx": "sheet", ".xlsm": "sheet", ".xls": "sheet", ".csv": "sheet", ".tsv": "sheet",
     ".docx": "docx",
-    ".pptx": "office", ".ppt": "office", ".doc": "office", ".odt": "office", ".odp": "office", ".rtf": "office",
+    # .ods goes through LibreOffice (Gotenberg), NOT openpyxl — openpyxl cannot read OpenDocument
+    # spreadsheets and raised on every pass, wedging the doc in an error/requeue loop forever.
+    ".pptx": "office", ".ppt": "office", ".doc": "office", ".odt": "office", ".odp": "office",
+    ".ods": "office", ".rtf": "office",
     ".md": "text", ".txt": "text", ".json": "text",
 }
 

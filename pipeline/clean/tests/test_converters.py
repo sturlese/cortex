@@ -15,6 +15,7 @@ def test_method_for_ext_routing():
     assert method_for_ext(".xlsx") == "sheet"
     assert method_for_ext(".docx") == "docx"
     assert method_for_ext(".pptx") == "office"
+    assert method_for_ext(".ods") == "office"   # LibreOffice route: openpyxl cannot read .ods
     assert method_for_ext(".md") == "text"
     assert method_for_ext(".weird") == "text"
 
