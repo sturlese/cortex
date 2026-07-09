@@ -15,9 +15,9 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
 ```
 
 1. **Extract** (`converters.py`): routed by extension. PDFs via `pdftotext -layout`; sheets
-   (xlsx/xls/csv/tsv/ods) become a compact per-tab profile (dimensions + 25 sample rows — the full
-   grid stays in the source); docx via python-docx; legacy Office via the Gotenberg sidecar
-   (→ PDF → text); plain text as-is.
+   (xlsx/xls/csv/tsv) become a compact per-tab profile (dimensions + 25 sample rows — the full
+   grid stays in the source); docx via python-docx; legacy Office and `.ods` via the Gotenberg
+   sidecar (→ PDF → text); plain text as-is.
 2. **Resolve the entity** (`entity.py`): from the source *path*, not the LLM. Conventions are
    configurable (JSON via `CLEAN_CONVENTIONS`); defaults recognize `Portfolio|Clients|Projects/<N>.
    <Name>[ - status]` (tracked) and `Pipeline|Dealflow/<Stage>/<Name>` (prospect). Two passes: a

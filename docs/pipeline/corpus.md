@@ -2,8 +2,8 @@
 
 `pipeline/corpus/src/corpus/`. A reproducible curation CLI for bootstrapping the brain from a
 *local copy* of a corpus (e.g. a bulk Drive export) instead of a live mirror. Pure box: reads the
-corpus read-only, emits JSON artifacts to a workdir. Every artifact gets a `.meta.json` provenance
-sidecar (sha256 of inputs → idempotency).
+corpus read-only, emits JSON artifacts to a workdir. Each JSONL/inventory artifact gets a
+`.meta.json` provenance sidecar (sha256 of inputs → idempotency).
 
 ## Stages
 

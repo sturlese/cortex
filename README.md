@@ -104,7 +104,7 @@ Details, folder conventions and the page contract: **[docs/](docs/README.md)**.
 
 ## Testing & observability
 
-~195 tests across four packages (75% coverage gate in CI), including the real agents exercised
+~220 tests across four packages (75% coverage gate in CI), including the real agents exercised
 offline against their real tools, plus an [eval harness](evals/) that scores the whole system
 against a golden set on every push — curation accuracy, placement, seeded-hallucination catch
 rate, graph canonicalization. `CLEAN_TRACE=logfire` exports every agent run — prompts, tool calls,

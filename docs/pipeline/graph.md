@@ -7,7 +7,7 @@ it writes a derived copy to `brain-md-graphed`.
 ## How it works
 
 1. **Collect** every `mentions:` entry (name + type) across all pages.
-2. **Canonicalize** names (`normalize.py`): strip accents, case, punctuation and legal suffixes
+2. **Canonicalize** names (`normalize.py`): strip accents, case, common punctuation and legal suffixes
    (S.L., Inc, GmbH, Ltd…), so "Initech", "INITECH, S.L." and "Initech Inc." merge into one entity.
    Noise (initials, <3 chars) is dropped.
 3. **Filter** by `--min-mentions` (default 2) — one-off mentions rarely deserve a node.
