@@ -260,5 +260,7 @@ def test_run_once_removes_page_when_doc_becomes_duplicate(env, monkeypatch):
 def test_main_dry_run_is_noop(tmp_path, capsys):
     cfg = Settings(raw_dir=str(tmp_path), brain_md_dir=str(tmp_path / "b"),
                    state_dir=str(tmp_path / "s"), dry_run=True)
-    asyncio.run(clean_main.main(cfg))
-    assert "no-op" in capsys.readouterr().out
+    asyncio.run(clean_main.main(cfg, once=True))     # once so the idle loop doesn't run forever
+    out = capsys.readouterr().out
+    assert "no-op" in out
+    assert not (tmp_path / "b").exists() or not any((tmp_path / "b").iterdir())   # wrote nothing

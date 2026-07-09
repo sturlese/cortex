@@ -198,18 +198,21 @@ async def main(cfg: Settings, once: bool = False):
     maybe_instrument("clean")
     log(f"start raw={cfg.raw_dir} out={cfg.brain_md_dir} dryRun={cfg.dry_run} "
         f"maxConcurrent={cfg.max_concurrent}")
-    if cfg.dry_run:
-        log("CLEAN_DRY_RUN=true -> no-op. Set it to false to process.")
-        return
     while True:
-        stats = await run_once(cfg)
-        it, ot, rt = stats.get("in_tok", 0), stats.get("out_tok", 0), stats.get("reasoning_tok", 0)
-        if it or ot:
-            log(f"tokens: in={it} out={ot} reasoning={rt}")
-        if stats.get("aborted"):
-            log(f"pass ABORTED by rate limit {stats} — relaunch later to resume (pending docs retry on their own)")
+        if cfg.dry_run:
+            # No-op pass, but KEEP LOOPING: the default compose service has restart:unless-stopped,
+            # so returning here would make the container exit-restart forever instead of idling.
+            log("CLEAN_DRY_RUN=true -> no-op pass. Set it to false to process.")
         else:
-            log(f"pass OK {stats}")
+            stats = await run_once(cfg)
+            it, ot, rt = stats.get("in_tok", 0), stats.get("out_tok", 0), stats.get("reasoning_tok", 0)
+            if it or ot:
+                log(f"tokens: in={it} out={ot} reasoning={rt}")
+            if stats.get("aborted"):
+                log(f"pass ABORTED by rate limit {stats} — relaunch later to resume "
+                    "(pending docs retry on their own)")
+            else:
+                log(f"pass OK {stats}")
         if once:
             break
         await asyncio.sleep(cfg.interval)
