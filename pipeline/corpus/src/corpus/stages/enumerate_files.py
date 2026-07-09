@@ -20,6 +20,16 @@ def _md5(path: str) -> str:
     return h.hexdigest()
 
 
+def _utf8_safe(rel: str) -> bool:
+    """False for a name os.walk decoded with surrogateescape (non-UTF8 bytes on Linux). Such a name
+    would crash the JSON/pydantic serializer AFTER the whole corpus is walked and hashed."""
+    try:
+        rel.encode("utf-8")
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
 def enumerate_files(corpus_dir: str) -> list[FileRecord]:
     out: list[FileRecord] = []
     for root, dirs, names in os.walk(corpus_dir):
@@ -29,6 +39,9 @@ def enumerate_files(corpus_dir: str) -> list[FileRecord]:
             if os.path.islink(full) or not os.path.isfile(full):
                 continue
             rel = os.path.relpath(full, corpus_dir)
+            if not _utf8_safe(rel):
+                print(f"[enumerate-files] skipping non-UTF8 filename: {rel!r}", flush=True)
+                continue
             st = os.stat(full)
             out.append(FileRecord(path="./" + rel, size=st.st_size, mtime=st.st_mtime, md5=_md5(full)))
     return out

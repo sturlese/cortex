@@ -5,7 +5,7 @@ import os
 from corpus.schemas import ManifestRecord
 from corpus.stages.build_inventory import _stable_key, build_inventory
 from corpus.stages.build_inventory import run_stage as inv_stage
-from corpus.stages.enumerate_files import enumerate_files
+from corpus.stages.enumerate_files import _utf8_safe, enumerate_files
 from corpus.stages.enumerate_files import run_stage as enum_stage
 
 
@@ -23,6 +23,13 @@ def test_enumerate_deterministic_and_hashed(tmp_path):
     assert [f.path for f in files] == ["./root.txt", "./Unit A/a.pdf", "./Unit A/sub/b.pdf"]
     assert all(len(f.md5) == 32 for f in files)
     assert files[1].size == 1
+
+
+def test_utf8_safe_detects_surrogate_names():
+    """A name os.walk decoded with surrogateescape (non-UTF8 bytes on Linux) must be flagged so
+    enumerate skips it instead of crashing the whole stage at serialization time."""
+    assert _utf8_safe("café.pdf") is True
+    assert _utf8_safe("caf\udce9.pdf") is False   # latin-1 é surrogateescaped by os.fsdecode
 
 
 def test_enumerate_skips_symlinks(tmp_path):
