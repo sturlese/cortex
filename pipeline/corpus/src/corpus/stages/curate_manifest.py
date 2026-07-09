@@ -23,6 +23,13 @@ def _canon_key(path: str):
     )
 
 
+def _record_rank(rec: ManifestRecord):
+    """Canonical pick within a hash group: an IN copy always beats a MAYBE copy (otherwise a
+    document classified IN can vanish after trim because a lower-priority-typed duplicate won the
+    path tiebreak), then fall back to the path heuristics."""
+    return (0 if rec.verdict == "IN" else 1, *_canon_key(rec.path))
+
+
 def curate(class_records, md5_by_path: dict[str, str]) -> list[ManifestRecord]:
     """IN+MAYBE -> exact dedup by hash -> canonical pick. No hash -> kept as-is. Sorted by path."""
     selected = [r for r in class_records if r.verdict in ("IN", "MAYBE")]
@@ -32,14 +39,16 @@ def curate(class_records, md5_by_path: dict[str, str]) -> list[ManifestRecord]:
     for r in selected:
         h = md5_by_path.get(r.path)
         rec = ManifestRecord(path=r.path, type=r.type, verdict=r.verdict, unit=r.unit, hash=h, size=r.size)
-        if h:
+        # size 0 files all share the empty-content md5; grouping them would collapse distinct
+        # placeholder documents into one. Keep them as-is (like hash-less records).
+        if h and rec.size:
             groups[h].append(rec)
         else:
             no_hash.append(rec)
 
     kept: list[ManifestRecord] = []
     for grp in groups.values():
-        grp.sort(key=lambda r: _canon_key(r.path))
+        grp.sort(key=_record_rank)
         kept.append(grp[0])
     kept.extend(no_hash)
     kept.sort(key=lambda r: r.path)

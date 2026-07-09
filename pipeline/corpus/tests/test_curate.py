@@ -37,3 +37,24 @@ def test_no_hash_records_kept():
 def test_output_sorted_by_path():
     kept = curate([_cr("./U/z.pdf"), _cr("./U/a.pdf")], {"./U/z.pdf": "h1", "./U/a.pdf": "h2"})
     assert [r.path for r in kept] == ["./U/a.pdf", "./U/z.pdf"]
+
+
+def test_dedup_keeps_the_in_copy_not_a_maybe_duplicate():
+    """An IN document duplicated into a blander folder (fallback 'other'/MAYBE) must survive dedup
+    as IN, not be represented by the MAYBE copy that a later trim would drop."""
+    records = [
+        _cr("./Archive/q1.pdf", verdict="MAYBE", typ="other"),   # would win on path alone
+        _cr("./Sales/Quarterly Report Q1.pdf", verdict="IN", typ="reports"),
+    ]
+    md5 = {r.path: "same-hash" for r in records}
+    kept = curate(records, md5)
+    assert len(kept) == 1
+    assert kept[0].verdict == "IN" and kept[0].type == "reports"
+
+
+def test_empty_files_are_not_deduped_together():
+    """Distinct 0-byte files share the empty md5; they must not collapse into one entry."""
+    records = [_cr("./U1/a.md", size=0), _cr("./U2/b.md", size=0)]
+    md5 = {r.path: "d41d8cd98f00b204e9800998ecf8e400" for r in records}
+    kept = curate(records, md5)
+    assert {r.path for r in kept} == {"./U1/a.md", "./U2/b.md"}
