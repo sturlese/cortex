@@ -57,6 +57,19 @@ def test_list_pages_kinds(tmp_path):
     assert "unknown kind" in list_pages_impl(ctx, "everything")
 
 
+def test_deleted_doc_not_surfaced_or_requeued(tmp_path):
+    """A deleted doc keeps a failed lastResult, but must not appear as a live verify_failed nor
+    consume the requeue budget."""
+    state = {"version": 1, "files": {
+        "X": {"name": "x.md", "status": "deleted",
+              "lastResult": {"path": "general/x.md", "verification": "failed",
+                             "unverified_numbers": ["9.9M"]}}}}
+    ctx = _ctx(tmp_path, state=state)
+    assert "no pages" in list_pages_impl(ctx, "verify_failed")
+    assert "requeued 0 of 1" in requeue_impl(ctx, ["X"], "try")
+    assert ctx.requeued == []
+
+
 def test_audit_page_reads_page_and_fresh_source(tmp_path, monkeypatch):
     ctx = _ctx(tmp_path)
     os.makedirs(tmp_path / "brain" / "general")

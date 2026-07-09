@@ -84,6 +84,11 @@ def list_pages_impl(ctx: OpsContext, kind: str) -> str:
     rows = []
     for fid, f in ctx.state.get("files", {}).items():
         r = f.get("lastResult") or {}
+        # a deleted/duplicate doc keeps its old lastResult; don't surface it as a live problem
+        # (its source is gone or its content is served by another page).
+        if kind in ("verify_failed", "verify_partial", "manual_review") \
+                and f.get("status") in ("deleted", "duplicate"):
+            continue
         match = (
             (kind == "error" and f.get("status") == "error")
             or (kind == "duplicate" and f.get("status") == "duplicate")
@@ -135,7 +140,9 @@ def requeue_impl(ctx: OpsContext, file_ids: list[str], reason: str) -> str:
         if len(ctx.requeued) >= MAX_REQUEUE:
             break
         f = ctx.state.get("files", {}).get(fid)
-        if not f or f.get("status") == "requeued":
+        # deleted/duplicate docs can't be meaningfully reprocessed — a requeue just flips back next
+        # pass, wasting the bounded budget; skip them so real candidates aren't crowded out.
+        if not f or f.get("status") in ("requeued", "deleted", "duplicate"):
             continue
         f["status"] = "requeued"
         f["requeueReason"] = reason[:200]
