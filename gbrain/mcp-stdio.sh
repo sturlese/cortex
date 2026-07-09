@@ -17,5 +17,5 @@ ENV_FILE="${GBRAIN_ENV_FILE:-$HERE/.env}"
 exec docker run -i --rm \
   --env-file "$ENV_FILE" \
   ${GBRAIN_DOCKER_NETWORK:+--network "$GBRAIN_DOCKER_NETWORK"} \
-  -v gbrain-home:/data \
+  -v gbrain_gbrain-data:/data \
   gbrain:local serve

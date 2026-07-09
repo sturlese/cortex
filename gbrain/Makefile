@@ -3,6 +3,8 @@
 #   make register-client NAME=alice SCOPES="read,write" SOURCE=default FED=default
 .DEFAULT_GOAL := help
 COMPOSE := docker compose
+# default OAuth scopes for register-client (override on the CLI: SCOPES="read")
+SCOPES ?= read,write
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -48,7 +50,7 @@ auth-list: ## List registered OAuth clients / tokens
 register-client: ## Register an OAuth client_credentials client (NAME=.. [SCOPES=..] [SOURCE=..] [FED=..])
 	$(COMPOSE) exec gbrain-serve gbrain auth register-client $(NAME) \
 		--grant-types client_credentials \
-		--scopes "$(or $(SCOPES),read,write)" \
+		--scopes "$(SCOPES)" \
 		$(if $(SOURCE),--source $(SOURCE),) \
 		$(if $(FED),--federated-read $(FED),)
 
@@ -58,6 +60,7 @@ register-client: ## Register an OAuth client_credentials client (NAME=.. [SCOPES
 register-chatgpt: ## Register the ChatGPT client (REDIRECT=<chatgpt redirect uri>)
 	$(COMPOSE) exec gbrain-serve gbrain auth register-client chatgpt \
 		--grant-types authorization_code \
+		--token-endpoint-auth-method none \
 		--scopes "read,write" \
 		--redirect-uri "$(REDIRECT)"
 

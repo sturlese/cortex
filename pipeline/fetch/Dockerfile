@@ -6,12 +6,14 @@ LABEL org.opencontainers.image.source="https://github.com/sturlese/cortex" \
       org.opencontainers.image.description="cortex fetch: deterministic Google Drive mirror" \
       org.opencontainers.image.licenses="MIT"
 
-# gogcli — Linux amd64 binary, pinned to a validated version.
-# Repo github.com/openclaw/gogcli; asset gogcli_<VER>_linux_amd64.tar.gz, binary `gog`.
+# gogcli — Linux binary, pinned to a validated version. TARGETARCH (amd64/arm64) is populated by
+# BuildKit from the build platform, so the image works on arm64 hosts, not just amd64.
+# Repo github.com/openclaw/gogcli; asset gogcli_<VER>_linux_<arch>.tar.gz, binary `gog`.
 ARG GOG_VERSION=0.22.0
+ARG TARGETARCH
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
- && curl -fsSL "https://github.com/openclaw/gogcli/releases/download/v${GOG_VERSION}/gogcli_${GOG_VERSION}_linux_amd64.tar.gz" \
+ && curl -fsSL "https://github.com/openclaw/gogcli/releases/download/v${GOG_VERSION}/gogcli_${GOG_VERSION}_linux_${TARGETARCH}.tar.gz" \
       | tar -xzO gog > /usr/local/bin/gog \
  && chmod +x /usr/local/bin/gog \
  && apt-get purge -y curl && rm -rf /var/lib/apt/lists/* \
