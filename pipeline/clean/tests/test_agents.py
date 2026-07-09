@@ -64,8 +64,11 @@ def test_agent_tools_wired_end_to_end_offline(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-fake")
     agent = agents.build_agent()
     deps = DocContext(path=str(tmp_path / "x.txt"), full_text="words " * 6000, shown=1000)
+    # TestModel's auto-generated output leaves the optional fields None; give it a schema-valid
+    # output (the ProcessorOutput validator now rejects a non-skipped output without metadata).
+    model = TestModel(custom_output_args={"skipped": True, "reason": "offline tool-wiring test"})
     r = asyncio.run(agent.run("process this document", deps=deps,
-                              model=TestModel(), usage_limits=agents.RUN_LIMITS))
+                              model=model, usage_limits=agents.RUN_LIMITS))
     assert isinstance(r.output, ProcessorOutput)
     assert deps.read_more_calls == 1          # read_more actually ran against the deps
     assert deps.ocr_used is False             # ocr refused: not a PDF (graceful message, no crash)

@@ -1,7 +1,7 @@
 """Structured outputs (Pydantic) — the contract for the agent's decisions."""
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Mention(BaseModel):
@@ -57,3 +57,14 @@ class ProcessorOutput(BaseModel):
         ),
     )
     reason: str = Field(description="why these decisions, grounded in concrete evidence from the text")
+
+    @model_validator(mode="after")
+    def _page_fields_required_unless_skipped(self):
+        """A non-skipped output must carry the fields build_page needs. Enforcing it here makes the
+        agent framework RETRY an incomplete generation instead of crashing the worker with an
+        AttributeError (which would mark the doc 'error' and re-burn an LLM call every pass)."""
+        if not self.skipped and (self.metadata is None
+                                 or self.representation is None
+                                 or self.extraction_quality is None):
+            raise ValueError("non-skipped output requires metadata, representation and extraction_quality")
+        return self

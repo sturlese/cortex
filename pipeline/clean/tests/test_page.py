@@ -148,6 +148,18 @@ def test_build_page_frontmatter_survives_hostile_strings():
     assert "On" in names                                    # preserved as the string "On", not True
 
 
+def test_processor_output_requires_metadata_unless_skipped():
+    """A non-skipped output missing metadata must fail validation (framework retries) rather than
+    validate and later crash build_page."""
+    import pytest
+    from pydantic import ValidationError
+
+    from clean.schemas import ProcessorOutput
+    ProcessorOutput(skipped=True, reason="pure noise")            # skipped: fine without metadata
+    with pytest.raises(ValidationError):
+        ProcessorOutput(skipped=False, reason="forgot metadata")
+
+
 def test_write_page_atomic(tmp_path):
     rel = write_page(str(tmp_path), "entities/initech", "doc-abc123", "content")
     assert rel == "entities/initech/doc-abc123.md"
