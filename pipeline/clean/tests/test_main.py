@@ -86,6 +86,16 @@ def test_run_once_rate_limit_aborts_without_burning_backlog(env, monkeypatch):
     assert _state_of(env)["files"] == {}
 
 
+def test_is_rate_limit_only_matches_real_429():
+    class WithCode(Exception):
+        status_code = 429
+    assert clean_main.is_rate_limit(WithCode("rate limited"))
+    assert clean_main.is_rate_limit(RuntimeError("Error code: 429 Too Many Requests"))
+    # a 429 embedded in a byte offset / size must NOT be read as a rate limit
+    assert not clean_main.is_rate_limit(RuntimeError("pdftotext rc=1: Syntax Error at byte 14293"))
+    assert not clean_main.is_rate_limit(RuntimeError("request too large (4429876 bytes)"))
+
+
 def test_run_once_respects_max_docs(env, monkeypatch):
     seen = []
     async def fake(doc, *a, **kw):

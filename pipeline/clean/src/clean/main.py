@@ -8,6 +8,7 @@ import argparse
 import asyncio
 import datetime
 import os
+import re
 
 from clean.agents import build_agent
 from clean.entity import build_catalog
@@ -19,6 +20,13 @@ from clean.worker import process_one
 
 def log(msg):
     print(f"[clean {datetime.datetime.now(datetime.UTC).isoformat()}] {msg}", flush=True)
+
+
+def is_rate_limit(ex) -> bool:
+    """A 429 lands here only after the API client exhausted its own retries. Match the status code
+    or a standalone 429 token — NOT any '429' substring, which would trip on byte offsets/sizes in
+    unrelated error messages and wedge the whole pass on a poisoned document."""
+    return getattr(ex, "status_code", None) == 429 or bool(re.search(r"\b429\b", str(ex)))
 
 
 def dedup_pending(pending, state, inventory, brain_md_dir=None):
@@ -87,10 +95,6 @@ async def run_once(cfg: Settings) -> dict:
     abort = {"rate_limit": False, "budget": False}  # circuit breakers: provider limit / token budget
     total = len(pending)
     start = datetime.datetime.now(datetime.UTC)
-
-    def is_rate_limit(ex) -> bool:
-        # a 429 lands here only after the API client exhausted its own retries
-        return getattr(ex, "status_code", None) == 429 or "429" in str(ex)
 
     def maybe_report():
         n = stats["processed"] + stats["errors"]
