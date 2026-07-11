@@ -248,6 +248,42 @@ def test_sync_once_unlinks_previous_local_on_rename(sync_env):
     assert not (tmp_path / "B.xlsx").exists()           # stale local removed
 
 
+def test_sync_once_json_content_does_not_collide_with_sidecar(sync_env):
+    """<fid>.json is the sidecar, so a file whose local extension is .json must keep its
+    content at <fid>.data.json instead of being clobbered by the sidecar write."""
+    cfg, tmp_path, fake = sync_env
+    fake.items.append({"id": "C", "name": "config.json", "mimeType": "application/json",
+                       "modifiedTime": "t1", "parents": ["folder1"]})
+    df.sync_once(cfg, "root")
+    assert (tmp_path / "C.data.json").read_text() == "content-C"
+    sidecar = json.loads((tmp_path / "C.json").read_text())
+    assert sidecar["drivePath"].endswith("/Docs/config.json")
+    manifest = json.loads((tmp_path / "_state.json").read_text())["files"]
+    assert manifest["C"]["localPath"] == "C.data.json"
+
+
+def test_sync_once_heals_json_entry_clobbered_by_sidecar(sync_env):
+    """A pre-fix manifest whose localPath points at the sidecar must re-download the content
+    (even with an unchanged fingerprint) and must not delete the sidecar while healing."""
+    cfg, tmp_path, fake = sync_env
+    fake.items.append({"id": "C", "name": "config.json", "mimeType": "application/json",
+                       "modifiedTime": "t1", "parents": ["folder1"]})
+    df.sync_once(cfg, "root")
+    # forge the pre-fix state: manifest points at the sidecar, real content file gone
+    state = json.loads((tmp_path / "_state.json").read_text())
+    state["files"]["C"]["localPath"] = "C.json"
+    (tmp_path / "_state.json").write_text(json.dumps(state))
+    (tmp_path / "C.data.json").unlink()
+    fake.downloads.clear()
+
+    df.sync_once(cfg, "root")
+    assert "C" in fake.downloads                        # not skipped despite same fingerprint
+    assert (tmp_path / "C.data.json").read_text() == "content-C"
+    assert json.loads((tmp_path / "C.json").read_text())["id"] == "C"   # sidecar survived
+    manifest = json.loads((tmp_path / "_state.json").read_text())["files"]
+    assert manifest["C"]["localPath"] == "C.data.json"
+
+
 def test_sync_once_refuses_mass_deletion_on_empty_inventory(sync_env):
     """rc=0 with zero items while the manifest is populated must NOT wipe the mirror."""
     cfg, tmp_path, fake = sync_env

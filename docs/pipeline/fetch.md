@@ -12,7 +12,8 @@ Deterministic, stdlib-only, no LLM. Strict boundary: it never writes Markdown an
    (`raw/_state.json`). Only new/changed files are downloaded (atomically: temp file + rename).
 4. Native Google types are exported (Docs → `GOOGLE_DOCS_FORMAT`, Sheets → `xlsx` so every tab
    survives, Slides → `pdf`); binaries download as-is. Files land as `<fileId><ext>` plus a
-   `<fileId>.json` metadata sidecar carrying the reconstructed `drivePath` (lineage for clean).
+   `<fileId>.json` metadata sidecar carrying the reconstructed `drivePath` (lineage for clean);
+   `.json` content lands as `<fileId>.data.json` so it can't collide with its sidecar.
 5. Files that disappeared from Drive are deleted from `raw/` and the manifest — deletions propagate.
 
 Unchanged files still get their path metadata backfilled (cheap) so lineage improves without

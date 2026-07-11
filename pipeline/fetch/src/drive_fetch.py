@@ -256,8 +256,11 @@ def merge_sidecar_lineage(cfg: Config, fid: str, lineage: dict) -> None:
 
 
 def download_file(cfg: Config, d: dict, fid: str, mime: str, lineage: dict) -> str:
-    """Downloads to raw/<fid><ext> (atomically) + a metadata sidecar. Returns the local name."""
+    """Downloads to raw/<fid><ext> (atomically) + a metadata sidecar. Returns the local name.
+    `.json` content is stored as <fid>.data.json — <fid>.json IS the sidecar."""
     fmt, ext = ext_for(cfg, d, mime)
+    if ext == ".json":
+        ext = ".data.json"
     out = cfg.raw_dir / f"{fid}{ext}"
     tmp = cfg.raw_dir / f".tmp-{fid}{ext}"
     args = ["drive", "download", fid, "--out", str(tmp)]
@@ -346,7 +349,10 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
             "parentPath": f"/{cfg.folder or folder_id}",
             "parentIds": parents(d),
         })
-        if prev and prev.get("fingerprint") == fp and prev_local and (cfg.raw_dir / prev_local).exists():
+        # A localPath equal to the sidecar means the content was clobbered by the sidecar write
+        # (pre-.data.json state): never treat it as a valid mirror — re-download to heal.
+        if (prev and prev.get("fingerprint") == fp and prev_local
+                and prev_local != f"{fid}.json" and (cfg.raw_dir / prev_local).exists()):
             # Backfill/refresh path metadata without redownloading unchanged files.
             touched = False
             for k, v in lineage.items():
@@ -369,7 +375,9 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
             continue
         # a rename or export-format change alters the local name: drop the previous file so its
         # stale content isn't orphaned in the mirror (deletion later only removes the current name).
-        if prev_local and prev_local != local and (cfg.raw_dir / prev_local).exists():
+        # Never unlink <fid>.json — that is the sidecar (a healing entry's prev_local points at it).
+        if (prev_local and prev_local != local and prev_local != f"{fid}.json"
+                and (cfg.raw_dir / prev_local).exists()):
             (cfg.raw_dir / prev_local).unlink()
         manifest[fid] = {
             "name": _field(d, "name", "title", default=""),
