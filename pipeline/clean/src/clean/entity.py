@@ -59,16 +59,18 @@ def slugify(text: str) -> str:
 
 
 def _split_status(name: str, markers: list[str]):
-    """Strip a trailing status marker: 'Acme - archived' -> ('Acme', 'archived')."""
-    m = re.search(r"[-–(]\s*([^-–()]+?)\s*\)?\s*$", name)
-    if m:
-        candidate = m.group(1).strip().lower()
-        # The trailing segment is a status only when it IS a marker, not merely contains one:
-        # "Acme - archived" -> archived, but "Acme - Wonderland" / "Sun-Won Industries" keep their
-        # full name (substring matching wrongly read "won" out of "Wonderland"/"Won Industries").
-        for marker in markers:
-            if candidate == marker:
-                return name[: m.start()].strip(), marker
+    """Strip a trailing status marker: 'Acme - archived' -> ('Acme', 'archived').
+
+    The marker must be the whole trailing segment after a ' - '/'(' separator, matched
+    case-insensitively -- so "Acme - Wonderland" / "Sun-Won Industries" keep their full name
+    (a substring "won" is not a marker), while a marker that carries its own hyphen ("on-hold",
+    a shipped default) is still recognized. The previous [^-] capture could never match across
+    the marker's own hyphen, so "Acme - on-hold" split into a distinct "acme-on-hold" entity.
+    """
+    for marker in markers:
+        m = re.search(rf"[-–(]\s*{re.escape(marker)}\s*\)?\s*$", name, re.I)
+        if m:
+            return name[: m.start()].strip(), marker
     return name, None
 
 
