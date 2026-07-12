@@ -256,10 +256,24 @@ def content_name(cfg: Config, d: dict, mime: str, fid: str) -> tuple[str | None,
     return fmt, name
 
 
-def _is_sidecar_path(fid: str, name: str | None) -> bool:
-    """True if `name` is (case-insensitively) the sidecar — i.e. not real content. A manifest
-    localPath equal to it is a pre-.data.json entry whose content the sidecar write clobbered."""
-    return bool(name) and name.lower() == sidecar_name(fid).lower()
+def _clobbered_by_sidecar(cfg: Config, fid: str, prev_local: str | None) -> bool:
+    """True if the manifest's content path IS the sidecar file — its bytes were overwritten by the
+    sidecar write (the pre-.data.json bug), so the entry must re-download to heal. Decided by file
+    identity, not name: an exact sidecar-name localPath is always the clobber; a case-variant (e.g.
+    <fid>.JSON) is the clobber only on a case-folding filesystem, where it resolves to the same file
+    as the sidecar — on a case-sensitive one it is a distinct, valid content file that must be kept
+    (else it would be needlessly re-downloaded and orphaned)."""
+    if not prev_local:
+        return False
+    sidecar = sidecar_name(fid)
+    if prev_local == sidecar:
+        return True
+    if prev_local.lower() != sidecar.lower():
+        return False
+    try:
+        return (cfg.raw_dir / prev_local).samefile(cfg.raw_dir / sidecar)
+    except OSError:  # content or sidecar missing -> not a live clobber; let the exists() skip re-fetch
+        return False
 
 
 def merge_sidecar_lineage(cfg: Config, fid: str, lineage: dict) -> None:
@@ -369,10 +383,10 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
             "parentPath": f"/{cfg.folder or folder_id}",
             "parentIds": parents(d),
         })
-        # A localPath naming the sidecar (case-insensitive) is a pre-.data.json entry whose content
-        # the sidecar write clobbered: treat it as absent so the file re-downloads and heals, and so
-        # the rename-cleanup below never unlinks the freshly written sidecar.
-        if _is_sidecar_path(fid, prev_local):
+        # A localPath that is really the sidecar file is a pre-.data.json entry whose content the
+        # sidecar write clobbered: treat it as absent so the file re-downloads and heals, and so the
+        # rename-cleanup below never unlinks the freshly written sidecar.
+        if _clobbered_by_sidecar(cfg, fid, prev_local):
             prev_local = None
         if prev and prev.get("fingerprint") == fp and prev_local and (cfg.raw_dir / prev_local).exists():
             # Backfill/refresh path metadata without redownloading unchanged files.
