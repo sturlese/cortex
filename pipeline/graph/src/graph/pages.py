@@ -57,18 +57,26 @@ def rewrite_doc(text: str, entities: dict) -> str:
 
 
 _PLAIN_YAML = re.compile(r"[A-Za-z0-9][\w .\-/]*", re.UNICODE)
-_YAML_RESERVED = {"true", "false", "null", "yes", "no", "on", "off", "none", "~"}
-_YAML_NUMBER = re.compile(r"[+-]?\d+(?:\.\d+)?")
 
 
 def _y(v) -> str:
-    """Emit a YAML-safe scalar: plain when unambiguously safe, else an escaped double-quoted
-    scalar. Node pages must round-trip through yaml.safe_load (the frontmatter is a contract)."""
+    """Emit a YAML-safe scalar: plain only when it round-trips through the loader, else an escaped
+    double-quoted scalar. Node pages must round-trip through yaml.safe_load (the frontmatter is a
+    contract)."""
     s = str(v)
-    if (s and _PLAIN_YAML.fullmatch(s)
-            and s.lower() not in _YAML_RESERVED
-            and not _YAML_NUMBER.fullmatch(s)):
-        return s
+    # Plain only when the restricted charset matches AND the loader reads the scalar back as the
+    # identical string. The round-trip check catches every YAML 1.1 implicit type -- dates
+    # (2001-12-14), hex/binary/underscored ints (0x1F, 0b101, 1_000), bool/null words -- that the
+    # old hand-maintained pattern list silently missed, re-typing the entity name on read.
+    if s and _PLAIN_YAML.fullmatch(s):
+        try:
+            if yaml.safe_load(s) == s:
+                return s
+        except (yaml.YAMLError, ValueError):
+            # An invalid date ("0000-00-00", "2026-02-30") matches YAML's timestamp regex but makes
+            # datetime.date() raise a bare ValueError; an over-limit int likewise. Either way the
+            # scalar is not provably plain-safe -- fall through and quote (which always round-trips).
+            pass
     esc = (s.replace("\\", "\\\\").replace('"', '\\"')
            .replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r"))
     return f'"{esc}"'

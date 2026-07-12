@@ -60,6 +60,26 @@ def test_render_node_hostile_names_stay_parseable():
     assert 'Joe "Bo" Smith' in fm["aliases"]
 
 
+def test_render_node_yaml_implicit_typed_names_round_trip():
+    """Entity names that look like YAML 1.1 implicit scalars -- ISO dates, hex/binary/underscored
+    ints -- must survive the frontmatter round-trip as strings. Otherwise yaml.safe_load re-types
+    the title/alias (2001-12-14 -> datetime.date, 0x1F -> 31) and the entity key changes on read."""
+    import yaml
+    # Incl. invalid dates that match YAML's timestamp regex but raise a bare ValueError in
+    # datetime.date() -- these must quote (and round-trip), not crash render_node.
+    for name in ["2001-12-14", "0x1F", "0b101", "1_000", "0000-00-00", "2026-02-30", "2026-13-01"]:
+        # title path: the implicit-typed name is the title
+        s = render_node({"type": "company", "title": name,
+                         "aliases": ["Globex"], "mentions": 2})
+        fm = yaml.safe_load(s.split("\n---\n", 1)[0].removeprefix("---\n"))
+        assert fm["title"] == name, (name, fm["title"])
+        # alias path: distinct title so the implicit-typed alias is not filtered as == title
+        s2 = render_node({"type": "company", "title": "Acme Holdings",
+                          "aliases": [name], "mentions": 2})
+        fm2 = yaml.safe_load(s2.split("\n---\n", 1)[0].removeprefix("---\n"))
+        assert name in fm2["aliases"], (name, fm2["aliases"])
+
+
 def test_page_mentions_tolerates_non_string_names():
     """A mention name YAML-parsed as a bool/int (unquoted `On`, `1984`) must not crash the graph."""
     doc = ('---\ntype: x\nmentions:\n  - { name: 1984, type: other }\n'
