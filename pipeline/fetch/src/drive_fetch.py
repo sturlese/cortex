@@ -214,7 +214,9 @@ def load_state(cfg: Config) -> dict:
             # valid JSON but not an object (e.g. `[]`, `null`): corrupt in the same spirit as a
             # parse error -- return it and sync_once crashes at state.setdefault("files", ...).
             log("_state.json is not an object, re-initializing")
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            # malformed JSON, or read_text() hitting non-UTF-8 bytes: either way the file's
+            # contents are corrupt -> re-initialize (access errors like OSError still propagate).
             log("_state.json corrupted, re-initializing")
     return {"files": {}}
 
