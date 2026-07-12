@@ -35,10 +35,14 @@ def load_playbook(state_dir: str) -> str:
 
 
 def save_playbook(state_dir: str, content: str) -> str:
-    """Writes the playbook (capped, stamped). Returns the stored body."""
-    body = (content or "").strip()[:PLAYBOOK_MAX_CHARS]
-    stamped = (f"<!-- distilled by the ops supervisor, "
-               f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M')}Z -->\n{body}\n")
+    """Writes the playbook (capped, stamped). Returns the stored body.
+    The body is capped so that stamp + body fits PLAYBOOK_MAX_CHARS — the same budget load_playbook
+    re-applies on read — otherwise the stamp would push the body tail past the cap and load would
+    silently truncate it."""
+    stamp = (f"<!-- distilled by the ops supervisor, "
+             f"{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M')}Z -->\n")
+    body = (content or "").strip()[:PLAYBOOK_MAX_CHARS - len(stamp)]
+    stamped = f"{stamp}{body}\n"
     os.makedirs(state_dir, exist_ok=True)
     tmp = playbook_path(state_dir) + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:

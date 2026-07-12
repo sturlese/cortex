@@ -15,6 +15,16 @@ def test_size_cap_enforced(tmp_path):
     assert len(load_playbook(str(tmp_path))) <= PLAYBOOK_MAX_CHARS
 
 
+def test_full_size_playbook_body_is_not_truncated_on_load(tmp_path):
+    """A maxed-out playbook must not lose its tail: save reserves room for the provenance stamp so
+    load — which re-caps stamp+body to PLAYBOOK_MAX_CHARS — never drops the end of the body."""
+    body = save_playbook(str(tmp_path), "H" * (PLAYBOOK_MAX_CHARS * 2))
+    loaded = load_playbook(str(tmp_path))
+    assert len(loaded) <= PLAYBOOK_MAX_CHARS                 # guardrail still holds
+    assert body in loaded and loaded.endswith(body)          # the whole stored body survives, tail included
+    assert "distilled by the ops supervisor" in loaded       # stamp still present
+
+
 def test_missing_playbook_is_empty(tmp_path):
     assert load_playbook(str(tmp_path)) == ""
 
