@@ -4,12 +4,17 @@ import json
 import os
 import tempfile
 
+STATE_FILE = "clean-state.json"
+
 
 def _read_json(path, fallback=None):
+    """Tolerant read for ANOTHER stage's artifact (fetch's inventory): unreadable or malformed ->
+    fallback. clean never writes that file, so degrading to "no inventory" is safe and
+    self-healing. Our own state file gets the stricter load_state below instead."""
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except (OSError, ValueError):
         return fallback
 
 
@@ -30,12 +35,28 @@ def file_sha256(path) -> str:
 
 
 def load_state(state_dir) -> dict:
-    fallback = {"version": 1, "files": {}}
-    return _read_json(os.path.join(state_dir, "clean-state.json"), fallback) or fallback
+    """Reset ONLY on content corruption, and say so (parity with fetch's load_state): a malformed,
+    non-UTF-8 or non-dict clean-state.json is logged and re-initialized. An access error (OSError)
+    propagates instead of resetting — an unreadable-but-intact state treated as empty would silently
+    reprocess the whole corpus AND overwrite the file at the first processed document."""
+    fresh = {"version": 1, "files": {}}
+    try:
+        with open(os.path.join(state_dir, STATE_FILE), encoding="utf-8") as f:
+            state = json.load(f)
+    except FileNotFoundError:
+        return fresh
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        print(f"[clean] {STATE_FILE} corrupted, re-initializing", flush=True)
+        return fresh
+    if not isinstance(state, dict):
+        print(f"[clean] {STATE_FILE} is not an object, re-initializing", flush=True)
+        return fresh
+    state.setdefault("files", {})   # a hand-edited state without "files" must not KeyError the pass
+    return state
 
 
 def save_state(state_dir, state):
-    write_json_atomic(os.path.join(state_dir, "clean-state.json"), state)
+    write_json_atomic(os.path.join(state_dir, STATE_FILE), state)
 
 
 def load_inventory(raw_dir):

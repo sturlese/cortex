@@ -2,6 +2,8 @@
 import json
 import os
 
+import pytest
+
 from clean.state import (
     classify_pending,
     file_sha256,
@@ -25,6 +27,40 @@ def test_state_roundtrip(tmp_path):
     state["files"]["A"] = {"status": "processed"}
     save_state(str(tmp_path), state)
     assert load_state(str(tmp_path))["files"]["A"]["status"] == "processed"
+
+
+def test_load_state_reinitializes_on_content_corruption(tmp_path, capsys):
+    """Malformed JSON or non-UTF-8 bytes -> fresh state, LOUDLY (parity with fetch's load_state):
+    a silent reset would reprocess the whole corpus without anyone knowing why."""
+    p = tmp_path / "clean-state.json"
+    p.write_text("{not json")
+    assert load_state(str(tmp_path)) == {"version": 1, "files": {}}
+    assert "re-initializing" in capsys.readouterr().out
+    p.write_bytes(b"\xff\xfe{")
+    assert load_state(str(tmp_path)) == {"version": 1, "files": {}}
+    assert "re-initializing" in capsys.readouterr().out
+
+
+def test_load_state_reinitializes_on_non_dict(tmp_path, capsys):
+    (tmp_path / "clean-state.json").write_text("[]")
+    assert load_state(str(tmp_path)) == {"version": 1, "files": {}}
+    assert "not an object" in capsys.readouterr().out
+
+
+def test_load_state_tolerates_missing_files_key(tmp_path):
+    """A hand-edited state without "files" must not KeyError classify_pending every pass."""
+    (tmp_path / "clean-state.json").write_text(json.dumps({"version": 1}))
+    state = load_state(str(tmp_path))
+    assert state["files"] == {}
+    assert classify_pending({}, state, str(tmp_path)) == []
+
+
+def test_load_state_propagates_access_errors(tmp_path):
+    """An unreadable-but-intact state must abort the pass, not reset: treating it as empty would
+    reprocess the corpus and OVERWRITE the file at the first processed document."""
+    (tmp_path / "clean-state.json").mkdir()   # open() -> IsADirectoryError, an OSError
+    with pytest.raises(OSError):
+        load_state(str(tmp_path))
 
 
 def test_write_json_atomic_creates_parents(tmp_path):
