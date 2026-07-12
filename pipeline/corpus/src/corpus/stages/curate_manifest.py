@@ -11,7 +11,7 @@ import re
 
 from corpus.artifacts import read_jsonl, write_jsonl, write_provenance
 from corpus.schemas import ClassRecord, FileRecord, ManifestRecord
-from corpus.stages.classify_files import load_taxonomy
+from corpus.stages.classify_files import default_taxonomy_path, load_taxonomy
 from corpus.stages.trim_manifest import is_noise
 
 VERSION_MARKERS = re.compile(r"(copy|\(\d+\)|_old|_v\d+\b|draft|unsigned)", re.I)
@@ -67,11 +67,13 @@ def curate(class_records, md5_by_path: dict[str, str],
 def run_stage(workdir: str, taxonomy_path: str | None = None) -> int:
     cls_path = os.path.join(workdir, "classification.jsonl")
     files_path = os.path.join(workdir, "files.jsonl")
+    tax_path = taxonomy_path or default_taxonomy_path()
     class_records = read_jsonl(cls_path, ClassRecord)
     md5_by_path = {fr.path: fr.md5 for fr in read_jsonl(files_path, FileRecord)}
-    demoted = set(load_taxonomy(taxonomy_path)["demoted_types"])
+    demoted = set(load_taxonomy(tax_path)["demoted_types"])
     kept = curate(class_records, md5_by_path, demoted)
     out = os.path.join(workdir, "manifest_full.jsonl")
     write_jsonl(out, kept)
-    write_provenance(out, "curate-manifest@2", [cls_path, files_path], len(kept))
+    # the taxonomy is an input now (demoted_types drives the canonical pick) -> record it for idempotency
+    write_provenance(out, "curate-manifest@2", [cls_path, files_path, tax_path], len(kept))
     return len(kept)
