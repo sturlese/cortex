@@ -95,6 +95,19 @@ def test_status_marker_requires_whole_word_not_substring():
     assert won["slug"] == "globex" and won["status"] == "won"
 
 
+def test_hyphenated_status_marker_on_hold_is_recognized():
+    """A status marker that carries its own hyphen ('on-hold', a shipped default) must still be
+    stripped. Otherwise the same company fragments into two entities (acme/ vs acme-on-hold/) and
+    its lifecycle status is silently dropped."""
+    e = resolve_entity("/X/Portfolio/3. Acme - on-hold/board/minutes.pdf")
+    assert e["slug"] == "acme"
+    assert e["name"] == "Acme"
+    assert e["status"] == "on-hold"
+    # the same entity filed without the status suffix must resolve to the SAME slug
+    plain = resolve_entity("/X/Portfolio/3. Acme/board/minutes.pdf")
+    assert plain["slug"] == e["slug"] == "acme"
+
+
 def test_whitespace_only_segment_does_not_crash():
     """A blank folder name anywhere in a path must not raise — build_catalog runs over the whole
     inventory outside any per-doc guard, so one such path would otherwise abort the entire pass."""
