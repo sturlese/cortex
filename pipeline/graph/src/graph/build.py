@@ -7,9 +7,9 @@ from graph.pages import page_mentions, render_node, rewrite_doc
 
 
 def _walk_md(root: str):
-    for d, _, files in os.walk(root):
-        if os.sep + ".git" in d:
-            continue
+    for d, dirs, files in os.walk(root):
+        dirs[:] = [sub for sub in dirs if sub != ".git"]  # skip VCS internals (exact name, not a
+        # substring: a '.git'-prefixed ancestor of root — e.g. .gitdata/ — must not drop the tree)
         for fn in files:
             if fn.endswith(".md"):
                 yield os.path.join(d, fn)
