@@ -148,6 +148,31 @@ def test_build_page_frontmatter_survives_hostile_strings():
     assert "On" in names                                    # preserved as the string "On", not True
 
 
+def test_build_page_yaml_implicit_typed_scalars_round_trip():
+    """Titles/tags that look like YAML 1.1 implicit scalars — ISO dates, hex/binary/underscored
+    ints, invalid dates that crash datetime.date() — must survive the frontmatter round-trip as
+    STRINGS (same contract as graph's node pages), not re-type on read."""
+    import yaml
+
+    for hostile in ["2001-12-14", "0x1F", "0b101", "1_000", "0000-00-00", "2026-02-30"]:
+        out = _out(metadata=PageMetadata(title=hostile, type="report", tags=[hostile]))
+        page = build_page(out, _lineage(), {})
+        fm = yaml.safe_load(page.split("\n---\n", 1)[0].removeprefix("---\n"))
+        assert fm["title"] == hostile, (hostile, fm["title"])
+        assert fm["tags"] == [hostile], (hostile, fm["tags"])
+
+
+def test_build_page_no_spurious_alias_for_long_entity_names():
+    """entity_aliases must appear only when the display name genuinely differs from its slug.
+    The old page-local slugify (capped at 80 chars) disagreed with entity.py's uncapped one on
+    very long names, emitting a spurious alias; one shared slugify keeps the comparison honest."""
+    from clean.entity import slugify
+    name = "Extremely " * 12 + "Long Holdings"          # slug well past 80 chars
+    page = build_page(_out(), _lineage(),
+                      {"slug": slugify(name), "kind": "tracked", "name": name})
+    assert "entity_aliases" not in page
+
+
 def test_processor_output_requires_metadata_unless_skipped():
     """A non-skipped output missing metadata must fail validation (framework retries) rather than
     validate and later crash build_page."""
