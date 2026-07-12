@@ -208,7 +208,12 @@ def build_lineage(cfg: Config, items: list[dict], root_id: str) -> dict[str, dic
 def load_state(cfg: Config) -> dict:
     if cfg.state_path.exists():
         try:
-            return json.loads(cfg.state_path.read_text())
+            state = json.loads(cfg.state_path.read_text())
+            if isinstance(state, dict):
+                return state
+            # valid JSON but not an object (e.g. `[]`, `null`): corrupt in the same spirit as a
+            # parse error -- return it and sync_once crashes at state.setdefault("files", ...).
+            log("_state.json is not an object, re-initializing")
         except json.JSONDecodeError:
             log("_state.json corrupted, re-initializing")
     return {"files": {}}

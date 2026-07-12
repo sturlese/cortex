@@ -97,6 +97,16 @@ def test_load_state_corrupted(tmp_path):
     assert df.load_state(cfg) == {"files": {}}
 
 
+def test_load_state_non_dict_reinitializes(tmp_path):
+    """Valid JSON that isn't an object (`[]`, `null`, ...) is corrupt in the same spirit as
+    malformed JSON: recover to {"files": {}} rather than return it and crash sync_once at
+    state.setdefault("files", ...) -- which main() swallows, wedging every later sync."""
+    cfg = _cfg(tmp_path)
+    for content in ["[]", "null", "42", '"x"']:
+        (tmp_path / "_state.json").write_text(content)
+        assert df.load_state(cfg) == {"files": {}}, content
+
+
 def test_write_atomic_and_sidecar_merge(tmp_path):
     cfg = _cfg(tmp_path)
     df.write_atomic(tmp_path / "deep" / "x.json", b'{"a": 1}')
