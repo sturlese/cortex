@@ -54,6 +54,30 @@ def test_build_graph_removes_stale_output():
         assert not os.path.exists(os.path.join(outd, "entities", "company", "globex.md"))  # stale node gone
 
 
+def test_build_graph_walks_root_under_git_prefixed_ancestor():
+    """The .git skip matches a path COMPONENT, not a substring: a brain-md dir living under a
+    '.git'-prefixed ancestor (e.g. .gitdata/) must still be processed, not silently emptied."""
+    with tempfile.TemporaryDirectory() as base, tempfile.TemporaryDirectory() as outd:
+        ind = os.path.join(base, ".gitdata", "brain")
+        os.makedirs(ind)
+        with open(os.path.join(ind, "d.md"), "w", encoding="utf-8") as f:
+            f.write('---\ntype: x\nmentions:\n  - { name: "Globex", type: company }\n---\nbody')
+        stats = build_graph(ind, outd, min_mentions=1)
+        assert stats["docs"] == 1                       # the doc under .gitdata/ is not skipped
+
+
+def test_build_graph_still_skips_real_git_subtree():
+    """A directory literally named .git (VCS internals) is still pruned."""
+    with tempfile.TemporaryDirectory() as ind, tempfile.TemporaryDirectory() as outd:
+        os.makedirs(os.path.join(ind, ".git"))
+        with open(os.path.join(ind, ".git", "config.md"), "w", encoding="utf-8") as f:
+            f.write('---\ntype: x\nmentions:\n  - { name: "Globex", type: company }\n---\nx')
+        with open(os.path.join(ind, "real.md"), "w", encoding="utf-8") as f:
+            f.write('---\ntype: x\nmentions:\n  - { name: "Globex", type: company }\n---\ny')
+        stats = build_graph(ind, outd, min_mentions=1)
+        assert stats["docs"] == 1                       # only real.md; .git/config.md is pruned
+
+
 def test_min_mentions_filters_across_docs():
     with tempfile.TemporaryDirectory() as ind, tempfile.TemporaryDirectory() as outd:
         # "Globex" in 2 docs, "Acme" in 1 -> with min_mentions=2 only Globex survives
