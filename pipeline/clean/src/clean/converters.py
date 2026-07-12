@@ -10,8 +10,6 @@ import httpx
 from docx import Document
 from openpyxl import load_workbook
 
-GOTENBERG_URL = os.environ.get("GOTENBERG_URL", "http://gotenberg:3000")
-
 EXT_METHOD = {
     ".pdf": "pdf",
     ".xlsx": "sheet", ".xlsm": "sheet", ".xls": "sheet", ".csv": "sheet", ".tsv": "sheet",
@@ -39,9 +37,10 @@ def _pdftotext(path: str) -> str:
 
 
 def _office_to_pdf(path: str) -> bytes:
+    url = os.environ.get("GOTENBERG_URL", "http://gotenberg:3000")  # call-time read, never at import
     with open(path, "rb") as f:
         files = {"files": (os.path.basename(path), f.read())}
-    resp = httpx.post(f"{GOTENBERG_URL}/forms/libreoffice/convert", files=files, timeout=180)
+    resp = httpx.post(f"{url}/forms/libreoffice/convert", files=files, timeout=180)
     if resp.status_code != 200:
         raise RuntimeError(f"gotenberg {resp.status_code}: {resp.text[:300]}")
     return resp.content
