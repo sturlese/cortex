@@ -10,7 +10,7 @@ corpus read-only, emits JSON artifacts to a workdir. Each JSONL/inventory artifa
 ```
 enumerate-files   corpus/ -> files.jsonl            (path, size, mtime, md5; deterministic walk)
 classify-files    files.jsonl -> classification.jsonl + matrix   (taxonomy rules engine)
-curate-manifest   classification -> manifest_full.jsonl          (IN+MAYBE, md5 dedup, canonical pick)
+curate-manifest   classification -> manifest_full.jsonl          (IN+MAYBE, md5 dedup, canonical pick; taxonomy for trim-survival)
 trim-manifest     manifest_full -> manifest.jsonl                (drop non-documents + demoted types)
 build-inventory   manifest -> inventory.json                     (what clean consumes as _state.json)
 ```
@@ -26,7 +26,9 @@ accent-insensitive. The packaged file is a generic example for a company drive â
 corpus**; the engine (`stages/classify_files.py`) never changes.
 
 `org_units` maps top-level folders to short labels for the classification matrix; `demoted_types`
-lists types that `trim-manifest` drops.
+lists types that `trim-manifest` drops. `curate-manifest` also reads `demoted_types`: when it dedups
+byte-identical copies it picks a canonical copy that will **survive** `trim` (document extension, not
+a demoted type), so a duplicate can never delete a document that had a keep-worthy sibling.
 
 ## Run
 
