@@ -46,7 +46,7 @@ def cmd_classify(args):
 
 
 def cmd_curate(args):
-    n = curate_manifest.run_stage(_workdir(args, create=False))
+    n = curate_manifest.run_stage(_workdir(args, create=False), _resolve(args, "taxonomy", args.taxonomy))
     print(f"curate-manifest: {n} -> manifest_full.jsonl")
 
 
@@ -60,7 +60,7 @@ def cmd_build_manifest(args):
     taxonomy = _resolve(args, "taxonomy", args.taxonomy)
     a = enumerate_files.run_stage(corpus, workdir)
     b = classify_files.run_stage(workdir, taxonomy)
-    c = curate_manifest.run_stage(workdir)
+    c = curate_manifest.run_stage(workdir, taxonomy)
     d = trim_manifest.run_stage(workdir, taxonomy)
     print(f"build-manifest: enumerate={a} classify={b} curate={c} -> allowlist={d}")
 
@@ -91,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     add("enumerate-files", cmd_enumerate, corpus=True)
     add("classify-files", cmd_classify, extra=[("--taxonomy", {"help": "taxonomy.json (default: the packaged one)"})])
-    add("curate-manifest", cmd_curate)
+    add("curate-manifest", cmd_curate, extra=[("--taxonomy", {"help": "taxonomy.json (default: the packaged one)"})])
     add("trim-manifest", cmd_trim, extra=[("--taxonomy", {"help": "taxonomy.json (default: the packaged one)"})])
     add("build-manifest", cmd_build_manifest, corpus=True,
         extra=[("--taxonomy", {"help": "taxonomy.json (default: the packaged one)"})])

@@ -1,6 +1,9 @@
 """curate-manifest: IN+MAYBE selection, exact dedup by md5, canonical pick."""
 from corpus.schemas import ClassRecord
 from corpus.stages.curate_manifest import _canon_key, curate
+from corpus.stages.trim_manifest import trim
+
+DEMOTED = {"other", "internal-admin"}
 
 
 def _cr(path, verdict="IN", typ="reports", unit="U", size=1):
@@ -50,6 +53,43 @@ def test_dedup_keeps_the_in_copy_not_a_maybe_duplicate():
     kept = curate(records, md5)
     assert len(kept) == 1
     assert kept[0].verdict == "IN" and kept[0].type == "reports"
+
+
+def test_dedup_prefers_trim_surviving_copy_over_demoted_type():
+    """Two MAYBE copies of the same bytes: the canonical pick must be the trim-surviving one, not a
+    demoted-type duplicate that wins the path tiebreak and then vanishes for the whole document."""
+    records = [
+        _cr("./Misc/report.pdf", verdict="MAYBE", typ="other"),        # demoted -> trim drops it
+        _cr("./Research/report.pdf", verdict="MAYBE", typ="research"),  # survives trim
+    ]
+    md5 = {r.path: "same-hash" for r in records}
+    kept = curate(records, md5, DEMOTED)
+    assert len(kept) == 1 and kept[0].type == "research"
+    assert [r.path for r in trim(kept, DEMOTED)] == ["./Research/report.pdf"]   # document survives
+
+
+def test_dedup_prefers_document_extension_over_non_document():
+    """Same bytes under a non-document extension and a document one: keep the copy trim won't drop
+    as noise, otherwise the document is lost even though a document-named sibling existed."""
+    records = [
+        _cr("./Design/logo.ai", verdict="MAYBE", typ="marketing-media"),   # .ai -> trim drops it
+        _cr("./Design/logo.pdf", verdict="MAYBE", typ="marketing-media"),  # survives trim
+    ]
+    md5 = {r.path: "same-hash" for r in records}
+    kept = curate(records, md5, DEMOTED)
+    assert len(kept) == 1 and kept[0].path == "./Design/logo.pdf"
+    assert len(trim(kept, DEMOTED)) == 1                                     # document survives
+
+
+def test_dedup_all_doomed_copies_still_drop():
+    """When every copy is trim-noise, the document is genuinely low-value: no false preservation."""
+    records = [
+        _cr("./A/x.ai", verdict="MAYBE", typ="other"),
+        _cr("./B/x.png", verdict="MAYBE", typ="other"),
+    ]
+    md5 = {r.path: "same-hash" for r in records}
+    kept = curate(records, md5, DEMOTED)
+    assert trim(kept, DEMOTED) == []
 
 
 def test_empty_files_are_not_deduped_together():
