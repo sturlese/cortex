@@ -107,6 +107,14 @@ def test_load_state_non_dict_reinitializes(tmp_path):
         assert df.load_state(cfg) == {"files": {}}, content
 
 
+def test_load_state_undecodable_reinitializes(tmp_path):
+    """A _state.json that isn't valid UTF-8 (binary garbage) is corrupt too: recover to
+    {"files": {}} instead of letting UnicodeDecodeError escape read_text() and wedge the sync."""
+    cfg = _cfg(tmp_path)
+    (tmp_path / "_state.json").write_bytes(b"\xff\xfe\x00\x81")
+    assert df.load_state(cfg) == {"files": {}}
+
+
 def test_write_atomic_and_sidecar_merge(tmp_path):
     cfg = _cfg(tmp_path)
     df.write_atomic(tmp_path / "deep" / "x.json", b'{"a": 1}')
