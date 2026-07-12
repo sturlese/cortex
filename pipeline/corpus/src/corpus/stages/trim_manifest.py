@@ -12,7 +12,7 @@ import os
 
 from corpus.artifacts import read_jsonl, write_jsonl, write_provenance
 from corpus.schemas import ManifestRecord
-from corpus.stages.classify_files import load_taxonomy
+from corpus.stages.classify_files import default_taxonomy_path, load_taxonomy
 
 # extensions that are NOT documents -> out (images, video, audio, archives, design, system junk)
 NON_DOCUMENT_EXT = {
@@ -41,9 +41,11 @@ def trim(records: list[ManifestRecord], demoted_types: set[str]) -> list[Manifes
 
 def run_stage(workdir: str, taxonomy_path: str | None = None) -> int:
     full_path = os.path.join(workdir, "manifest_full.jsonl")
-    demoted = set(load_taxonomy(taxonomy_path)["demoted_types"])
+    tax_path = taxonomy_path or default_taxonomy_path()
+    demoted = set(load_taxonomy(tax_path)["demoted_types"])
     kept = trim(read_jsonl(full_path, ManifestRecord), demoted)
     out = os.path.join(workdir, "manifest.jsonl")
     write_jsonl(out, kept)
-    write_provenance(out, "trim-manifest@2", [full_path], len(kept))
+    # the taxonomy is an input (demoted_types drives the trim) -> record it for idempotency, like curate
+    write_provenance(out, "trim-manifest@2", [full_path, tax_path], len(kept))
     return len(kept)
