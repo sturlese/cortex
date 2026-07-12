@@ -2,36 +2,36 @@
 import hashlib
 import os
 import re
-import unicodedata
 
+import yaml
+
+from clean.entity import slugify
 from clean.schemas import ProcessorOutput
 
 # Format of the underlying source (so a client knows which tool to open it with).
 SOURCE_FORMAT = {"pdf": "pdf", "sheet": "spreadsheet", "docx": "document", "office": "office", "text": "text"}
 
-
-def slugify(text: str) -> str:
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    text = re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
-    return text[:80] or "untitled"
-
-
-# A scalar is safe to emit as a plain (unquoted) YAML string only when it starts with an
-# alphanumeric and contains no YAML indicator/special character. Anything else — quotes, colons,
-# brackets, leading indicators (@ * & ! | > % ? -), newlines, YAML reserved words (true/on/null…)
-# or a number-looking token — must be emitted as a properly escaped double-quoted scalar, or the
-# page's frontmatter (treated as an API by the brain/graph stages) becomes unparseable.
+# A scalar is emitted plain (unquoted) only when it provably round-trips: it matches a restricted
+# charset AND yaml.safe_load reads it back as the identical string. The round-trip catches every
+# YAML 1.1 implicit type — dates (2001-12-14), hex/binary/underscored ints (0x1F, 1_000), bool/null
+# words (true/on/~) — that a hand-maintained pattern list silently misses; an implicit-typed scalar
+# would re-type on read and the frontmatter (an API for the brain/graph stages) would change
+# meaning. Same approach as graph's pages._y — the packages deliberately share no code, so any
+# change here must be mirrored there.
 _PLAIN_YAML = re.compile(r"[A-Za-z0-9][\w .\-/]*", re.UNICODE)
-_YAML_RESERVED = {"true", "false", "null", "yes", "no", "on", "off", "none", "~"}
-_YAML_NUMBER = re.compile(r"[+-]?\d+(?:\.\d+)?")
 
 
 def _yaml(v) -> str:
     s = str(v)
-    if (s and _PLAIN_YAML.fullmatch(s)
-            and s.lower() not in _YAML_RESERVED
-            and not _YAML_NUMBER.fullmatch(s)):
-        return s
+    if s and _PLAIN_YAML.fullmatch(s):
+        try:
+            if yaml.safe_load(s) == s:
+                return s
+        except (yaml.YAMLError, ValueError):
+            # An invalid date ("0000-00-00", "2026-02-30") matches YAML's timestamp regex but makes
+            # datetime.date() raise a bare ValueError; an over-limit int likewise. Either way the
+            # scalar is not provably plain-safe — fall through and quote (which always round-trips).
+            pass
     esc = (s.replace("\\", "\\\\").replace('"', '\\"')
            .replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r"))
     return f'"{esc}"'
@@ -53,7 +53,7 @@ def brain_path(entity: dict, filename: str, file_id: str):
     elif ent.get("slug"):
         rel = f"entities/{ent['slug']}"
     elif ent.get("unit"):
-        rel = f"units/{slugify(str(ent['unit']))}"
+        rel = f"units/{slugify(str(ent['unit'])) or 'untitled'}"
     else:
         rel = "general"
     return rel, slug

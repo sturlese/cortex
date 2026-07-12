@@ -20,7 +20,7 @@ from clean.tools import DocContext
 from clean.tools import ocr as ocr_impl
 from clean.tools import read_more as read_more_impl
 
-PROCESSOR_MODEL = os.environ.get("CLEAN_MODEL", "gpt-5.4")
+DEFAULT_MODEL = "gpt-5.4"
 DEFAULT_REASONING_EFFORT = "medium"
 _VALID_EFFORTS = ("minimal", "low", "medium", "high")
 
@@ -36,8 +36,9 @@ class Processor(Protocol):
     async def run(self, prompt: str, *, deps: Any = None, usage_limits: Any = None) -> Any: ...
 
 
-def build_model(model_name: str):
-    """Model + settings for the agents.
+def build_model(model_name: str | None = None):
+    """Model + settings for the agents. Without an explicit name, CLEAN_MODEL is resolved HERE,
+    at call time — never at import (the config ground rule; this is the single place that reads it).
 
     Two forms of CLEAN_MODEL:
     - bare name ("gpt-5.4"): OpenAI Responses API with an EXPLICIT reasoning effort
@@ -46,6 +47,7 @@ def build_model(model_name: str):
       "google-gla:gemini-2.5-pro", ...): resolved by pydantic-ai; the provider reads its own
       env key. Provider-specific tuning is yours to add — the agents don't care.
     """
+    model_name = model_name or os.environ.get("CLEAN_MODEL", DEFAULT_MODEL)
     if ":" in model_name:
         return model_name, None
     key = os.environ.get("OPENAI_API_KEY")
@@ -107,7 +109,7 @@ def build_agent(playbook: str = "") -> "Processor":
     if backend != "openai":
         raise RuntimeError(f"invalid CLEAN_LLM: {backend!r} (use 'openai', 'fake' or 'fake-flawed')")
     from clean.playbook import compose_instructions
-    model, settings = build_model(PROCESSOR_MODEL)
+    model, settings = build_model()
     agent = Agent(model, output_type=ProcessorOutput, instructions=compose_instructions(PROCESSOR_SYS, playbook),
                   model_settings=settings, deps_type=DocContext)
 

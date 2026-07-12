@@ -45,6 +45,15 @@ def test_build_model_provider_prefixed_passthrough(monkeypatch):
     assert settings is None
 
 
+def test_build_model_reads_clean_model_env_at_call_time(monkeypatch):
+    """Without an explicit name, CLEAN_MODEL is resolved when build_model RUNS — never at import
+    (the config ground rule): setting the env after import must take effect."""
+    monkeypatch.setenv("CLEAN_MODEL", "anthropic:claude-sonnet-4-5")
+    model, settings = agents.build_model()
+    assert model == "anthropic:claude-sonnet-4-5"
+    assert settings is None
+
+
 def test_build_agent_wires_structured_output(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-fake")
     agent = agents.build_agent()

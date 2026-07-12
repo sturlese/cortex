@@ -27,9 +27,9 @@ from clean.agents import build_model
 from clean.converters import extract, method_for_ext
 from clean.playbook import save_playbook
 from clean.schemas import OpsReport
+from clean.settings import Settings
 from clean.state import load_state, save_state
 
-OPS_MODEL = os.environ.get("CLEAN_MODEL", "gpt-5.4")
 OPS_LIMITS = UsageLimits(request_limit=14, tool_calls_limit=12)
 MAX_REQUEUE = 20      # bounded write-action: the supervisor never mass-mutates state
 MAX_AUDITS = 5        # sampled semantic audit, not an exhaustive (expensive) sweep
@@ -224,7 +224,7 @@ class FakeOps:
 def build_ops_agent(ctx: OpsContext):
     if os.environ.get("CLEAN_LLM", "openai").lower().startswith("fake"):
         return FakeOps(ctx)
-    model, settings = build_model(OPS_MODEL)
+    model, settings = build_model()
     agent = Agent(model, output_type=OpsReport, instructions=OPS_SYS,
                   model_settings=settings, deps_type=OpsContext)
 
@@ -275,12 +275,14 @@ def render_report(report: OpsReport, ctx: OpsContext) -> str:
 async def main() -> int:
     from clean.observability import maybe_instrument
     maybe_instrument("ops")
-    state_dir = os.environ.get("CLEAN_STATE_DIR", "/data/state")
+    # same entrypoint-constructed config as the worker (settings.py) — one source for the
+    # dir env vars and their defaults, instead of re-declaring them here.
+    cfg = Settings.from_env()
     ctx = OpsContext(
-        state=load_state(state_dir),
-        state_dir=state_dir,
-        raw_dir=os.environ.get("RAW_DIR", "/data/raw"),
-        brain_md_dir=os.environ.get("BRAIN_MD_DIR", "/data/brain-md"),
+        state=load_state(cfg.state_dir),
+        state_dir=cfg.state_dir,
+        raw_dir=cfg.raw_dir,
+        brain_md_dir=cfg.brain_md_dir,
     )
     if not ctx.state.get("files"):
         print("[ops] nothing to supervise yet (empty state)")
@@ -291,9 +293,9 @@ async def main() -> int:
     report = result.output
 
     if ctx.requeued:
-        save_state(state_dir, ctx.state)
+        save_state(cfg.state_dir, ctx.state)
     md = render_report(report, ctx)
-    path = os.path.join(state_dir, REPORT_FILE)
+    path = os.path.join(cfg.state_dir, REPORT_FILE)
     with open(path, "w", encoding="utf-8") as f:
         f.write(md)
     print(md)
