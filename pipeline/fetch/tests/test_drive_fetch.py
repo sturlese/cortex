@@ -106,6 +106,23 @@ def test_write_atomic_and_sidecar_merge(tmp_path):
     assert json.loads((tmp_path / "F.json").read_text()) == {"kept": True, "drivePath": "/X/a.pdf"}
 
 
+def test_clobbered_by_sidecar_uses_file_identity_not_name(tmp_path, monkeypatch):
+    """The clobber is decided by file identity, not name: an exact sidecar-name localPath is always
+    the clobber, but a case-variant (<fid>.JSON) is the clobber ONLY on a case-folding filesystem
+    (where it resolves to the sidecar). On a case-sensitive filesystem it is a distinct valid file
+    that must be kept, else it is needlessly re-downloaded and orphaned."""
+    cfg = _cfg(tmp_path)
+    (tmp_path / "C.json").write_text("{}")                      # the sidecar
+    assert df._clobbered_by_sidecar(cfg, "C", None) is False
+    assert df._clobbered_by_sidecar(cfg, "C", "C.json") is True     # exact name -> always clobber
+    assert df._clobbered_by_sidecar(cfg, "C", "C.pdf") is False     # unrelated content -> never
+    # case-variant name: outcome follows the filesystem, probed via samefile
+    monkeypatch.setattr(df.Path, "samefile", lambda self, other: False)   # case-sensitive fs
+    assert df._clobbered_by_sidecar(cfg, "C", "C.JSON") is False    # distinct file -> keep it
+    monkeypatch.setattr(df.Path, "samefile", lambda self, other: True)    # case-folding fs
+    assert df._clobbered_by_sidecar(cfg, "C", "C.JSON") is True     # same file -> heal
+
+
 # ── folder resolution ────────────────────────────────────────────────────────
 def test_resolve_folder_id_explicit_wins(tmp_path):
     assert df.resolve_folder_id(_cfg(tmp_path, folder_id="explicit-id")) == "explicit-id"
@@ -260,6 +277,20 @@ def test_sync_once_json_content_does_not_collide_with_sidecar(sync_env):
     assert sidecar["drivePath"].endswith("/Docs/config.json")
     manifest = json.loads((tmp_path / "_state.json").read_text())["files"]
     assert manifest["C"]["localPath"] == "C.data.json"
+
+
+def test_sync_once_uppercase_json_content_does_not_collide_with_sidecar(sync_env):
+    """The collision is case-insensitive: on a case-folding filesystem (macOS APFS, Windows,
+    Docker Desktop bind mounts) <fid>.JSON and the sidecar <fid>.json are the same file, so an
+    uppercase-extension JSON must also be routed to <fid>.data.JSON."""
+    cfg, tmp_path, fake = sync_env
+    fake.items.append({"id": "C", "name": "CONFIG.JSON", "mimeType": "application/json",
+                       "modifiedTime": "t1", "parents": ["folder1"]})
+    df.sync_once(cfg, "root")
+    assert (tmp_path / "C.data.JSON").read_text() == "content-C"
+    assert json.loads((tmp_path / "C.json").read_text())["id"] == "C"   # sidecar not clobbered
+    manifest = json.loads((tmp_path / "_state.json").read_text())["files"]
+    assert manifest["C"]["localPath"] == "C.data.JSON"
 
 
 def test_sync_once_heals_json_entry_clobbered_by_sidecar(sync_env):
