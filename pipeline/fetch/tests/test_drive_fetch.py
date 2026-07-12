@@ -262,6 +262,20 @@ def test_sync_once_json_content_does_not_collide_with_sidecar(sync_env):
     assert manifest["C"]["localPath"] == "C.data.json"
 
 
+def test_sync_once_uppercase_json_content_does_not_collide_with_sidecar(sync_env):
+    """The collision is case-insensitive: on a case-folding filesystem (macOS APFS, Windows,
+    Docker Desktop bind mounts) <fid>.JSON and the sidecar <fid>.json are the same file, so an
+    uppercase-extension JSON must also be routed to <fid>.data.JSON."""
+    cfg, tmp_path, fake = sync_env
+    fake.items.append({"id": "C", "name": "CONFIG.JSON", "mimeType": "application/json",
+                       "modifiedTime": "t1", "parents": ["folder1"]})
+    df.sync_once(cfg, "root")
+    assert (tmp_path / "C.data.JSON").read_text() == "content-C"
+    assert json.loads((tmp_path / "C.json").read_text())["id"] == "C"   # sidecar not clobbered
+    manifest = json.loads((tmp_path / "_state.json").read_text())["files"]
+    assert manifest["C"]["localPath"] == "C.data.JSON"
+
+
 def test_sync_once_heals_json_entry_clobbered_by_sidecar(sync_env):
     """A pre-fix manifest whose localPath points at the sidecar must re-download the content
     (even with an unchanged fingerprint) and must not delete the sidecar while healing."""

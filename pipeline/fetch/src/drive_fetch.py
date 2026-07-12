@@ -240,9 +240,31 @@ def ext_for(cfg: Config, d: dict, mime: str) -> tuple[str | None, str]:
     return None, (os.path.splitext(name)[1] or ".bin")
 
 
+def sidecar_name(fid: str) -> str:
+    """The metadata sidecar's filename — the on-disk contract clean reads. Single-sourced."""
+    return f"{fid}.json"
+
+
+def content_name(cfg: Config, d: dict, mime: str, fid: str) -> tuple[str | None, str]:
+    """(export_format|None, on-disk content filename), disambiguated from the sidecar so content
+    can never overwrite <fid>.json. Compared case-insensitively for case-folding filesystems
+    (macOS APFS, Windows, Docker Desktop bind mounts), where <fid>.JSON == <fid>.json."""
+    fmt, ext = ext_for(cfg, d, mime)
+    name = f"{fid}{ext}"
+    if name.lower() == sidecar_name(fid).lower():
+        name = f"{fid}.data{ext}"
+    return fmt, name
+
+
+def _is_sidecar_path(fid: str, name: str | None) -> bool:
+    """True if `name` is (case-insensitively) the sidecar — i.e. not real content. A manifest
+    localPath equal to it is a pre-.data.json entry whose content the sidecar write clobbered."""
+    return bool(name) and name.lower() == sidecar_name(fid).lower()
+
+
 def merge_sidecar_lineage(cfg: Config, fid: str, lineage: dict) -> None:
     """Adds lineage paths to an existing sidecar without touching the rest of its metadata."""
-    sidecar = cfg.raw_dir / f"{fid}.json"
+    sidecar = cfg.raw_dir / sidecar_name(fid)
     meta: object = {}
     if sidecar.exists():
         try:
@@ -256,13 +278,11 @@ def merge_sidecar_lineage(cfg: Config, fid: str, lineage: dict) -> None:
 
 
 def download_file(cfg: Config, d: dict, fid: str, mime: str, lineage: dict) -> str:
-    """Downloads to raw/<fid><ext> (atomically) + a metadata sidecar. Returns the local name.
-    `.json` content is stored as <fid>.data.json — <fid>.json IS the sidecar."""
-    fmt, ext = ext_for(cfg, d, mime)
-    if ext == ".json":
-        ext = ".data.json"
-    out = cfg.raw_dir / f"{fid}{ext}"
-    tmp = cfg.raw_dir / f".tmp-{fid}{ext}"
+    """Downloads to raw/<content-name> (atomically) + a metadata sidecar. Returns the local name.
+    The content name is disambiguated from the sidecar (<fid>.json) so the two never collide."""
+    fmt, name = content_name(cfg, d, mime, fid)
+    out = cfg.raw_dir / name
+    tmp = cfg.raw_dir / f".tmp-{name}"
     args = ["drive", "download", fid, "--out", str(tmp)]
     if fmt:
         args += ["--format", fmt]
@@ -274,12 +294,12 @@ def download_file(cfg: Config, d: dict, fid: str, mime: str, lineage: dict) -> s
         meta = meta["file"]
     if isinstance(meta, dict):
         meta.update(lineage)
-    write_atomic(cfg.raw_dir / f"{fid}.json", json.dumps(meta, indent=2, ensure_ascii=False).encode())
+    write_atomic(cfg.raw_dir / sidecar_name(fid), json.dumps(meta, indent=2, ensure_ascii=False).encode())
     return out.name
 
 
 def remove_local(cfg: Config, entry: dict, fid: str) -> None:
-    for p in (entry.get("localPath"), f"{fid}.json"):
+    for p in (entry.get("localPath"), sidecar_name(fid)):
         if p and (cfg.raw_dir / p).exists():
             (cfg.raw_dir / p).unlink()
 
@@ -349,10 +369,12 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
             "parentPath": f"/{cfg.folder or folder_id}",
             "parentIds": parents(d),
         })
-        # A localPath equal to the sidecar means the content was clobbered by the sidecar write
-        # (pre-.data.json state): never treat it as a valid mirror — re-download to heal.
-        if (prev and prev.get("fingerprint") == fp and prev_local
-                and prev_local != f"{fid}.json" and (cfg.raw_dir / prev_local).exists()):
+        # A localPath naming the sidecar (case-insensitive) is a pre-.data.json entry whose content
+        # the sidecar write clobbered: treat it as absent so the file re-downloads and heals, and so
+        # the rename-cleanup below never unlinks the freshly written sidecar.
+        if _is_sidecar_path(fid, prev_local):
+            prev_local = None
+        if prev and prev.get("fingerprint") == fp and prev_local and (cfg.raw_dir / prev_local).exists():
             # Backfill/refresh path metadata without redownloading unchanged files.
             touched = False
             for k, v in lineage.items():
@@ -375,9 +397,7 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
             continue
         # a rename or export-format change alters the local name: drop the previous file so its
         # stale content isn't orphaned in the mirror (deletion later only removes the current name).
-        # Never unlink <fid>.json — that is the sidecar (a healing entry's prev_local points at it).
-        if (prev_local and prev_local != local and prev_local != f"{fid}.json"
-                and (cfg.raw_dir / prev_local).exists()):
+        if prev_local and prev_local != local and (cfg.raw_dir / prev_local).exists():
             (cfg.raw_dir / prev_local).unlink()
         manifest[fid] = {
             "name": _field(d, "name", "title", default=""),
