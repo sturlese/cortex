@@ -149,11 +149,21 @@ against a golden set on every push — curation accuracy, placement, seeded-defe
 spans (optional dependency).
 
 ```bash
-make test    # all suites
-make eval    # golden scorecard (offline)
-make lint    # ruff
-make demo    # the whole loop, offline
+make test       # all suites
+make eval       # golden scorecard (offline)
+make benchmark  # the cortex benchmark (ground-truth corpus + whole-system scorecard)
+make lint       # ruff
+make demo       # the whole loop, offline
 ```
+
+## The cortex benchmark
+
+[`benchmark/`](benchmark/) generates a synthetic company drive **with ground truth** — planted
+figures, duplicates, revisions with corrected values, ACL scopes, unanswerable probes — and
+scores the whole system against it, end to end: curation, placement, trust, facts exactness
+(zero wrong values), version chains, dossiers, Q&A (exactness / freshness / **refusal**) and
+ACL enforcement. The offline floor gates in CI; the same corpus and ground truth score any real
+model (`CLEAN_LLM=openai …`). If you build a company brain, this is the bar to clear.
 
 ## License
 

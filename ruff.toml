@@ -10,7 +10,7 @@ ignore = [
 ]
 
 [lint.isort]
-known-first-party = ["clean", "corpus", "graph", "answer", "slackexport"]
+known-first-party = ["clean", "corpus", "graph", "answer", "slackexport", "benchmark"]
 
 [lint.per-file-ignores]
 "**/tests/*" = ["SIM115"]   # quick open().read()/.write() is fine in tests

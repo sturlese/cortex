@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [pipeline/fetch, pipeline/clean, pipeline/corpus, pipeline/graph, pipeline/slack, answer]
+        package: [pipeline/fetch, pipeline/clean, pipeline/corpus, pipeline/graph, pipeline/slack, answer, benchmark]
     defaults:
       run:
         working-directory: ${{ matrix.package }}
@@ -40,7 +40,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Ruff
-        run: pipx run ruff check pipeline evals answer
+        run: pipx run ruff check pipeline evals answer benchmark
 
   evals:
     runs-on: ubuntu-latest

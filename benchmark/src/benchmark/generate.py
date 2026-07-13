@@ -54,7 +54,9 @@ def generate(corpus_dir: str) -> dict:
     root.mkdir(parents=True, exist_ok=True)
     gt: dict = {"clients": [], "prospects": [], "out_files": [], "duplicates": [],
                 "versions": [], "facts": [], "qa": [], "acl": {"unit": "Clients", "audiences": ["sales"]},
-                "model_tier": []}
+                "model_tier": [],
+                # quarterlies(4) + FINALs(2) + KPIs(4) + notes(4) + pitches(2) + roadmap + memo
+                "expected_kept_count": 18}
 
     for i, (name, arr, growth) in enumerate(CLIENTS):
         slug = _slug(name)

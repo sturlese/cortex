@@ -20,6 +20,7 @@ Start with the [architecture](architecture.md), then dive into the piece you're 
 | Deploying both stacks | [operations/deploy.md](operations/deploy.md) |
 | Runbook (real gotchas + fixes) | [operations/runbook.md](operations/runbook.md) |
 | Evals — golden scorecard | [../evals/README.md](../evals/README.md) |
+| The cortex benchmark | [../benchmark/README.md](../benchmark/README.md) |
 | Design decisions (ADRs) | [decisions/](decisions/001-no-ddd-refactor.md) |
 
 Documentation is validated against the code; when they disagree, **the code wins** — then fix the doc.

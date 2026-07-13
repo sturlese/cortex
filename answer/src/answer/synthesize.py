@@ -116,7 +116,17 @@ class FakeSynthesizer:
 
         entity = next((e for e in svc.known_entities() if e and e in q_tokens), None)
         metric = svc.match_metric(q_tokens, entity)
-        if metric:
+        if metric and entity is None:
+            # "the arr-usd for zenith-corp": a metric question scoped to an entity we don't know
+            # must REFUSE — answering with someone else's data (facts path) or a lookalike page
+            # (search fallback) are both wrong. Guarded to the metric path only, so prose
+            # questions like "what did globex ask for before the renewal" are untouched.
+            # (Found by the benchmark's refusal probe; the golden QA probe carried no metric.)
+            asked = re.search(r"\bfor ([a-z][a-z0-9-]*)\b", question.lower())
+            if asked and asked.group(1) not in {"the", "a", "an", "our", "us", "this", "that"}:
+                out = AnswerOutput(refused=True, confidence="low",
+                                   reason=f"no entity named {asked.group(1)!r} in the brain")
+        if metric and out is None:
             period = next(iter(re.findall(r"\b20\d\d(?:-(?:0[1-9]|1[0-2]|Q[1-4]))?\b", question)), None)
             deps.record(svc.metrics_text(metric, entity, period, deps))
             rows = svc.current_metric_rows(metric, entity, period)
