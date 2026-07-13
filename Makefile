@@ -1,6 +1,6 @@
 # cortex — convenience targets.
 .DEFAULT_GOAL := help
-PACKAGES := pipeline/fetch pipeline/clean pipeline/corpus pipeline/graph answer
+PACKAGES := pipeline/fetch pipeline/clean pipeline/corpus pipeline/graph pipeline/slack answer
 PY ?= python3        # stock macOS / Debian ship python3, not `python`; override with `make PY=python`
 
 help: ## Show this help

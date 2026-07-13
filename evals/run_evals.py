@@ -24,7 +24,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-for rel in ("pipeline/clean/src", "pipeline/graph/src", "pipeline/corpus/src", "answer/src"):
+for rel in ("pipeline/clean/src", "pipeline/graph/src", "pipeline/corpus/src",
+            "pipeline/slack/src", "answer/src"):
     sys.path.insert(0, str(ROOT / rel))
 
 OUT = ROOT / "evals" / "out"
@@ -195,6 +196,34 @@ def eval_graph(brain: Path, graphed: Path) -> None:
            stats["entities"] == GOLDEN["graph"]["entities_total"] and node_ok)
 
 
+def eval_slack_connector(out: Path) -> None:
+    """The second-source proof: a Slack export goes through the UNCHANGED pipeline — connector
+    sync -> clean (fake) -> a verified page under units/<channel> with the conversation intact."""
+    from clean.main import run_once
+    from clean.settings import Settings
+    from slackexport.sync import sync as slack_sync
+    export = out / "slack-export"
+    (export / "general").mkdir(parents=True, exist_ok=True)
+    (export / "users.json").write_text(json.dumps(
+        [{"id": "U1", "name": "alice", "profile": {"display_name": "Alice Smith"}}]))
+    (export / "general" / "2026-01-14.json").write_text(json.dumps(
+        [{"ts": "1768381920.0", "user": "U1",
+          "text": "Budget approved: $5k for the Globex pilot in 2026-01."}]))
+    raw = out / "slack-raw"
+    slack_sync(str(export), str(raw))
+    cfg = Settings(raw_dir=str(raw), brain_md_dir=str(out / "slack-brain"),
+                   state_dir=str(out / "slack-state"), facts_dir=str(out / "slack-facts"),
+                   dossiers_dir=str(out / "slack-dossiers"), dry_run=False)
+    stats = asyncio.run(run_once(cfg))
+    pages = list((out / "slack-brain").rglob("*.md"))
+    page = pages[0].read_text() if pages else ""
+    ok = (stats.get("errors") == 0 and len(pages) == 1
+          and "unit: general" in page and "verification: verified" in page
+          and "$5k" in page and "Alice Smith" in page)
+    metric("slack: export -> verified page through the unchanged pipeline",
+           f"{len(pages)} page(s)", ok)
+
+
 def eval_acl(brain: Path, facts_dir: Path, answer_state: Path) -> None:
     """Access control, measured at the answer: the same question about a sales-scoped document
     must be answered for a sales client and REFUSED for an engineering client — and the
@@ -258,6 +287,7 @@ def main() -> int:
     eval_graph(brain, graphed)
     eval_answers(brain, facts_dir, OUT / "answer-state")
     eval_acl(brain, facts_dir, OUT / "answer-state-acl")
+    eval_slack_connector(OUT)
 
     width = max(len(n) for n, _, _ in RESULTS)
     lines = ["# Eval scorecard", "", "| Metric | Result | Pass |", "|---|---|---|"]

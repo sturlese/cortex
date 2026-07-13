@@ -64,6 +64,9 @@ Swap in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
 ## What's in the box
 
 - **fetch** — deterministic incremental Drive mirror (deletions propagate). No LLM.
+- **slack** — second source connector (a workspace export becomes pipeline inventory, offline,
+  stdlib-only) — proof that ingestion is a *contract*, not a framework: the whole downstream
+  runs unchanged.
 - **clean** — agentic workers with bounded autonomy: structured outputs, self-escalation to vision
   OCR, exact-content dedup, end-to-end deletion propagation, per-pass token budget, and the
   verifier-driven correction loop. Every page carries `verification:` and OCR provenance.
