@@ -66,10 +66,11 @@ feedback: the generator-judge loop, with a judge that cannot hallucinate. The or
 
 **A supervisor closes the loop; memory is one auditable page.** A second agent watches the
 system, not the documents: it reads code-aggregated telemetry, spot-audits pages against freshly
-re-extracted sources (the sampled semantic judge), requeues bounded work, and distills lessons
-into a ≤1500-char playbook the workers read next pass — workers → telemetry → supervisor →
-playbook → workers. Everything it does is capped, recorded in `ops-report.md`, and reversible
-([ADR 004](decisions/004-supervisor-and-memory.md)).
+re-extracted sources (the sampled semantic judge; content fenced as untrusted data), requeues
+bounded work, and distills lessons into a ≤1500-char playbook **proposal** an operator approves
+before the workers read it — workers → telemetry → supervisor → human approval → playbook →
+workers. Everything it does is capped, recorded in `ops-report.md`, and reversible
+([ADR 004](decisions/004-supervisor-and-memory.md) + amendment).
 
 **Airgap between stacks.** The pipeline carries no `DATABASE_URL`; the brain server never touches
 Drive. Compromise of either stack does not expose the other. The shared `brain-md` volume has a
@@ -87,7 +88,8 @@ single writer (clean).
 | Same file uploaded twice | sha256 dedup — one page, `duplicateOf` pointer | automatic |
 | File deleted in Drive | deletions propagate end to end (mirror → state → page) | automatic |
 | Crash mid-pass | per-doc atomic state writes + content-hash idempotency | relaunch; nothing reprocessed twice |
-| Supervisor writes a bad playbook | advisory-only, ≤1500 chars, single writer, kill switch | edit/delete the file; verifier still gates every page |
+| Supervisor writes a bad playbook | proposal needs human approval; advisory-only, ≤1500 chars, kill switch | reject the pending file; verifier still gates every page |
+| Document content tries to steer the supervisor (prompt injection) | audit content fenced as UNTRUSTED DATA; playbook writes human-gated | reject `playbook-pending.md`; the attempt is a reportable finding |
 | Supervisor requeues wrongly | hard cap 20/run, reason recorded in state + report | requeued docs just reprocess; worst case is one wasted pass |
 
 ## Output layout (brain-md)

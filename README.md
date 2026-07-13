@@ -97,8 +97,9 @@ Details, folder conventions and the page contract: **[docs/](docs/README.md)**.
   budgets, judged by a verifier that is pure code ([ADR 003](docs/decisions/003-bounded-agency-worker.md)).
 - **Trust is checked, not assumed.** Self-reported quality is never the only signal
   ([ADR 002](docs/decisions/002-deterministic-verification.md)).
-- **Memory on one auditable page.** The system learns through a capped, human-editable playbook —
-  not an opaque vector store ([ADR 004](docs/decisions/004-supervisor-and-memory.md)).
+- **Memory on one auditable page.** The system learns through a capped, human-approved playbook —
+  the supervisor proposes, an operator applies — not an opaque vector store
+  ([ADR 004](docs/decisions/004-supervisor-and-memory.md)).
 - **Idempotent and resumable.** Everything keys off content hashes; kill it anytime and relaunch.
 - **Single writer per artifact · least privilege.** No secrets in git, no DB credentials in the
   pipeline, read-only mounts wherever a stage only reads.
