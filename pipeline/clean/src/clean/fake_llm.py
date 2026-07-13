@@ -1,13 +1,13 @@
-"""Offline LLM backend (CLEAN_LLM=fake) — for demos and tests ONLY.
+"""Offline LLM backends (CLEAN_LLM=fake) — for demos and tests ONLY.
 
-Not a model: a small deterministic heuristic that mimics the processor's output *shape* so the
-whole pipeline can run end to end with zero API keys and zero network (see examples/). The pages
-it writes are structurally valid but crude — never feed them to a real brain.
+Not models: small deterministic heuristics that mimic each agent's output *shape* so the whole
+pipeline can run end to end with zero API keys and zero network (see examples/). The pages and
+facts they produce are structurally valid but crude — never feed them to a real brain.
 """
 import re
 import types
 
-from clean.schemas import Mention, PageMetadata, ProcessorOutput
+from clean.schemas import FactObservation, FactsOutput, Mention, PageMetadata, ProcessorOutput
 
 _DATE = re.compile(r"\b(20\d{2})-(0[1-9]|1[0-2])(?:-(0[1-9]|[12]\d|3[01]))?\b")
 _CAP_WORD = re.compile(r"\b([A-Z][a-zA-Z]{3,})\b")
@@ -132,4 +132,62 @@ class FakeProcessor:
                 out = out.model_copy(update={"body_markdown": _DEMO_HALLUCINATION + (out.body_markdown or "")})
             elif "kpi" in filename.lower():
                 out = out.model_copy(update={"body_markdown": _DEMO_MISATTRIBUTION + (out.body_markdown or "")})
+        return types.SimpleNamespace(output=out, usage=_Usage())
+
+
+def _guess_unit(header: str) -> str | None:
+    low = header.lower()
+    for token, unit in (("usd", "usd"), ("eur", "eur"), ("gbp", "gbp"), ("pct", "%"), ("%", "%")):
+        if token in low:
+            return unit
+    return None
+
+
+def facts_from_grid(sheets: dict, flawed: bool = False) -> FactsOutput:
+    """Deterministic grid mapper: row 1 = headers; a first-column cell that parses as a period
+    becomes the row's period, otherwise its dimension; every numeric cell in the other columns
+    becomes an observation named after its header. Crude, but shaped exactly like the real
+    agent's output — which is the point.
+
+    `flawed=True` prepends one observation whose value does NOT match its cell, so demos/evals
+    can watch the deterministic validator drop it (the grid decides, not the model)."""
+    from clean.entity import slugify
+    from clean.facts import _num
+    from clean.verify import parse_period
+
+    obs: list[FactObservation] = []
+    for name, rows in sheets.items():
+        if len(rows) < 2:
+            continue
+        headers = [str(h).strip() for h in rows[0]]
+        if flawed and len(headers) > 1:
+            obs.append(FactObservation(
+                metric="seeded-bad-value", metric_raw=headers[1] or "col2",
+                value_raw="999999", sheet=name, row=2, col=2))
+        for i, row in enumerate(rows[1:], start=2):
+            first = str(row[0]).strip() if row else ""
+            period = parse_period(first)
+            dimension = None if period or not first else first
+            for j, cell in enumerate(row[1:], start=2):
+                if j - 1 >= len(headers):
+                    break
+                header = headers[j - 1]
+                if not header or _num(str(cell)) is None:
+                    continue
+                obs.append(FactObservation(
+                    metric=slugify(header) or "metric", metric_raw=header,
+                    value_raw=str(cell).strip(), unit=_guess_unit(header),
+                    period=period, dimension=dimension, sheet=name, row=i, col=j))
+    return FactsOutput(observations=obs, reason="fake backend: header-row grid heuristic")
+
+
+class FakeFactsProcessor:
+    """Drop-in for the facts agent: async .run(prompt, deps=GridContext, ...) -> .output/.usage.
+    Reads the grid from deps (the same grid the validator re-reads)."""
+
+    def __init__(self, flawed: bool = False):
+        self.flawed = flawed
+
+    async def run(self, prompt: str, *, deps=None, usage_limits=None):
+        out = facts_from_grid(deps.sheets if deps else {}, flawed=self.flawed)
         return types.SimpleNamespace(output=out, usage=_Usage())

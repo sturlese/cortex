@@ -204,6 +204,24 @@ def _overlaps(span: tuple[int, int], spans: list[tuple[int, int, _Period]]) -> b
     return any(s < pe and e > ps for ps, pe, _ in spans)
 
 
+def parse_period(text: str) -> str | None:
+    """Normalize a period expression to 'YYYY', 'YYYY-MM' or 'YYYY-QN' — the shared period
+    vocabulary of the trust layer (page anchoring) and the facts layer. None when `text` carries
+    no period signal or an ambiguous one (several distinct signals)."""
+    signals = _period_signals(text)
+    periods = {(p.year, p.quarter, p.month) for _s, _e, p in signals}
+    if len(periods) != 1:
+        return None
+    p = signals[0][2]
+    if p.year and p.month:
+        return f"{p.year}-{p.month:02d}"
+    if p.year and p.quarter:
+        return f"{p.year}-Q{p.quarter}"
+    if p.year:
+        return str(p.year)
+    return None                     # month/quarter without a year: not addressable as a period
+
+
 def _norm(s: str) -> str:
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
     return re.sub(r"\s+", " ", s)

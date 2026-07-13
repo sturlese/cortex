@@ -40,6 +40,7 @@ cp "$OUT/work/inventory.json" "$OUT/raw/_state.json"
 echo "==> [3/5] clean: raw -> brain-md (offline fake LLM; a SEEDED hallucination + a SEEDED misattribution to watch the loop work)"
 CLEAN_LLM=fake-flawed CLEAN_DRY_RUN=false \
 RAW_DIR="$OUT/raw" BRAIN_MD_DIR="$OUT/brain-md" CLEAN_STATE_DIR="$OUT/state" \
+BRAIN_FACTS_DIR="$OUT/brain-facts" \
 PYTHONPATH="$ROOT/pipeline/clean/src" "$PY" -m clean.main --once
 
 echo "==> [4/5] graph: brain-md -> brain-md-graphed (entity nodes + wikilinks)"
@@ -62,7 +63,10 @@ echo "Things to notice:"
 echo "  - the NDA, the invoice and style.css never became pages (taxonomy verdict OUT)"
 echo "  - the duplicated quarterly report yields ONE page (md5 dedup in corpus)"
 echo "  - Globex landed under entities/globex with status: won; Hooli under prospects/hooli"
-echo "  - the CSV page is a digest with detail_in_source: true"
+echo "  - the CSV page is a digest with detail_in_source: true — AND its numbers became typed,"
+echo "    cell-verified facts: examples/out/brain-facts/facts.jsonl (metric/period/value/source_ref)."
+echo "    The fake backend also proposed one observation with a WRONG value; the deterministic"
+echo "    validator rejected it (see 'FACTS REJECTED' above) — the grid decides, not the model"
 echo "  - every page carries 'verification: verified' — the trust layer traced each figure"
 echo "    in the body back to the source text (deterministic, no LLM)"
 echo "  - THE CONTROL LOOP, LIVE: the fake backend deliberately invented two figures in the"

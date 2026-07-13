@@ -23,8 +23,10 @@ def env(tmp_path, monkeypatch):
         "B": {"name": "b.md", "localPath": "b.md", "drivePath": "/X/b.md"},
     }}))
     monkeypatch.setattr(clean_main, "build_agent", lambda **kw: object())
+    monkeypatch.setattr(clean_main, "build_facts_agent", lambda: object())
     cfg = Settings(raw_dir=str(raw), brain_md_dir=str(tmp_path / "brain"),
-                   state_dir=str(tmp_path / "state"), dry_run=False)
+                   state_dir=str(tmp_path / "state"), dry_run=False,
+                   facts_dir=str(tmp_path / "facts"))
     return types.SimpleNamespace(root=tmp_path, raw=raw, cfg=cfg)
 
 
@@ -46,7 +48,7 @@ def test_settings_from_env(monkeypatch):
 
 
 def test_run_once_processes_all_pending(env, monkeypatch):
-    async def fake_process_one(doc, processor, raw, out, catalog=None):
+    async def fake_process_one(doc, processor, raw, out, catalog=None, **kw):
         return {"fileId": doc["fileId"], "skipped": False, "method": "text",
                 "path": f"general/{doc['fileId']}.md", "representation": "full",
                 "usage": {"in": 10, "out": 5, "reasoning": 1}}
@@ -122,6 +124,7 @@ def test_run_once_throttles_state_saves(tmp_path, monkeypatch):
         inv[f"F{i}"] = {"name": f"f{i}.md", "localPath": f"f{i}.md", "drivePath": f"/X/f{i}.md"}
     (raw / "_state.json").write_text(_json.dumps({"files": inv}))
     monkeypatch.setattr(clean_main, "build_agent", lambda **kw: object())
+    monkeypatch.setattr(clean_main, "build_facts_agent", lambda: object())
     saves = []
     real_save = clean_main.save_state
     monkeypatch.setattr(clean_main, "save_state",
@@ -191,7 +194,7 @@ def test_run_once_aggregates_verification_verdicts(env, monkeypatch, capsys):
 def test_run_once_dedups_identical_content(env, monkeypatch):
     (env.raw / "b.md").write_text("doc a")   # same content as a.md -> exact duplicate
     calls = []
-    async def fake_process_one(doc, processor, raw, out, catalog=None):
+    async def fake_process_one(doc, processor, raw, out, catalog=None, **kw):
         calls.append(doc["fileId"])
         return {"fileId": doc["fileId"], "skipped": False, "method": "text",
                 "path": f"general/{doc['fileId']}.md", "usage": {}}
@@ -223,7 +226,7 @@ def test_run_once_dedups_against_previously_processed(env, monkeypatch):
 
 
 def test_run_once_deletes_page_when_source_disappears(env, monkeypatch):
-    async def fake_process_one(doc, processor, raw, out, catalog=None):
+    async def fake_process_one(doc, processor, raw, out, catalog=None, **kw):
         rel = f"general/{doc['fileId']}.md"
         os.makedirs(os.path.join(out, "general"), exist_ok=True)
         with open(os.path.join(out, rel), "w") as f:
@@ -251,7 +254,7 @@ def test_run_once_deletes_page_when_source_disappears(env, monkeypatch):
 def _writes_page_by_name():
     """Fake process_one that writes the page at a path derived from the file's display name, so a
     rename changes the page path (as the real slug does)."""
-    async def fake(doc, processor, raw, out, catalog=None):
+    async def fake(doc, processor, raw, out, catalog=None, **kw):
         rel = f"general/{doc['entry']['name']}.md"
         os.makedirs(os.path.join(out, "general"), exist_ok=True)
         with open(os.path.join(out, rel), "w") as f:

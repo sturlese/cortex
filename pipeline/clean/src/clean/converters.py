@@ -125,18 +125,24 @@ def _csv_rows(path: str, delim: str) -> list:
     return [("Sheet1", rows)]
 
 
+def sheet_rows(path: str) -> list:
+    """Full parsed grid per sheet: [(sheet_name, rows)] with rows capped at SHEET_MAX_ROWS.
+    Shared by the page profile (below) and the facts layer (facts.py reads the same grid the
+    validator re-reads — one parse, one truth)."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".xls":
+        return _xls_rows(path)
+    if ext == ".csv":
+        return _csv_rows(path, ",")
+    if ext == ".tsv":
+        return _csv_rows(path, "\t")
+    return _xlsx_rows(path)
+
+
 def _sheet_profile(path: str) -> str:
     """Compact per-sheet profile: dimensions + a sample of rows. The full grid stays in the
     original file (the page will carry `detail_in_source: true`)."""
-    ext = os.path.splitext(path)[1].lower()
-    if ext == ".xls":
-        sheets = _xls_rows(path)
-    elif ext == ".csv":
-        sheets = _csv_rows(path, ",")
-    elif ext == ".tsv":
-        sheets = _csv_rows(path, "\t")
-    else:
-        sheets = _xlsx_rows(path)
+    sheets = sheet_rows(path)
     parts = []
     for name, rows in sheets:
         if not rows:

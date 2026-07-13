@@ -51,6 +51,11 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
    `units/<unit>/` or `general/`, named `slug(filename)-<sha1(id)[:6]>.md` (stable + unique).
    Pages produced through OCR carry `extraction_method: vision` + `ocr_model` (auditable).
    Contract: [brain-page-contract.md](brain-page-contract.md).
+6. **Facts** (`facts.py`, sheets only): a second bounded agent maps the grid to typed metric
+   observations; a deterministic validator re-reads every claimed cell and only literal matches
+   land in the facts store (`brain-facts/`: SQLite + JSONL, `source_ref` per number). The agent
+   judges, the grid decides — see [facts.md](facts.md) and
+   [ADR 005](../decisions/005-facts-layer.md).
 
 ## Orchestration (`main.py`)
 
@@ -64,8 +69,8 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
 - Rate limits: individual errors are recorded and retried next pass; a *persistent* 429 trips a
   circuit breaker that aborts the pass leaving remaining docs pending (relaunch to resume).
 - Pass stats surface the agency: `ocr_docs`, `verify_retries`, `verify_verified/partial/failed`,
-  `verify_unanchored`, plus `VERIFY FAILED` / `VERIFY UNANCHORED` log lines for triage; each
-  result carries an `agent_trace`
+  `verify_unanchored`, `facts_kept`/`facts_rejected`, plus `VERIFY FAILED` / `VERIFY UNANCHORED` /
+  `FACTS REJECTED` log lines for triage; each result carries an `agent_trace`
   (`["read_more x1", "ocr", "verifier-retry"]`) — every autonomous decision is recorded in state.
 - Before each pass the processor loads the **playbook** — the supervisor-distilled, size-capped
   advisory memory ([ops.md](ops.md)); `CLEAN_TOKEN_BUDGET` gives the pass a hard spend ceiling
@@ -87,6 +92,8 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
 | `CLEAN_CONVENTIONS` | built-ins | path to a JSON overriding entity conventions |
 | `CLEAN_TOKEN_BUDGET` | `0` | hard per-pass token ceiling (0 = uncapped); pass pauses cleanly when hit |
 | `CLEAN_PLAYBOOK` | `on` | `off` disables injecting the supervisor-distilled playbook |
+| `CLEAN_FACTS` | `on` | `off` disables the typed numeric facts layer ([facts.md](facts.md)) |
+| `BRAIN_FACTS_DIR` | `/data/brain-facts` | facts store location (facts.db + facts.jsonl) |
 | `CLEAN_TRACE` | — | `logfire` = OpenTelemetry tracing of every agent run (optional dep) |
 | `GEMINI_API_KEY` | — | enables the agent's `ocr()` tool; without it the tool degrades gracefully |
 | `VISION_MODEL` | `gemini-3-flash-preview` | OCR model behind the tool |

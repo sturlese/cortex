@@ -28,7 +28,7 @@ cortex is two independent Docker stacks joined by one Markdown corpus.
 | Stage | In → Out | Nature | State |
 |---|---|---|---|
 | fetch | Drive folder → `raw/` + `_state.json` | deterministic | per-file fingerprint manifest |
-| clean | `raw/` → `brain-md/` | agentic worker (1 request/doc happy path; bounded tools + 1 judge retry) | `clean-state.json` (sha256 idempotency) |
+| clean | `raw/` → `brain-md/` + `brain-facts/` | agentic workers (1 request/doc happy path; bounded tools + 1 judge retry; sheets also get a facts agent judged by the grid) | `clean-state.json` (sha256 idempotency) |
 | ops | telemetry → diagnosis → bounded actions | supervisor agent (≤14 req; requeue ≤20, playbook ≤1500c) | `ops-report.md` + playbook |
 | graph | `brain-md/` → `brain-md-graphed/` | deterministic | none (fully regenerable) |
 | corpus | local corpus copy → curated `inventory.json` | deterministic | provenance sidecars |
@@ -46,9 +46,13 @@ extraction quality, picks a representation (`full`/`digest`/`minimal`) and write
 schema-validated output removes all parsing fragility. Failed docs are marked and retried; a
 persistent 429 aborts the pass without burning the backlog.
 
-**Representation over transcription.** Spreadsheets become a compact profile + `detail_in_source:
-true`, pointing clients at the live file for exact figures — the knowledge base indexes meaning,
-not grids.
+**Representation over transcription — but numbers become facts.** Spreadsheets become a compact
+profile + `detail_in_source: true` on the page side (the knowledge base indexes meaning, not
+grids), AND their numeric truth lands in the **facts layer**: a bounded agent maps the grid to
+typed observations `(entity, metric, value, unit, period, cell)`, a deterministic validator
+re-reads every claimed cell, and only literal matches enter `brain-facts/` (SQLite + JSONL,
+`source_ref` per number). The agent judges, the grid decides
+([ADR 005](decisions/005-facts-layer.md)).
 
 **Trust is checked, not assumed.** The LLM writes; pure code verifies: every figure in a generated
 body is deterministically traced back to the source text (generous matching over separators,
@@ -82,6 +86,7 @@ single writer (clean).
 |---|---|---|
 | Model invents a figure | deterministic verifier → judge retry → `verification:` flag + banner | supervisor spot-audit; requeue after a playbook update |
 | Model misattributes a figure (right number, wrong period) | period anchoring → judge retry → `unanchored_numbers` flag | same loop; the flag names the exact figures |
+| Facts agent proposes a wrong mapping | deterministic cell validation drops it (`facts_rejected` + reason) | reprocess after a playbook/prompt fix; the store never held it |
 | Garbled extraction (scan, mojibake) | worker escalates to its `ocr()` tool in-run | no key / OCR fails → page flagged `manual_review` |
 | Provider rate limit (persistent 429) | circuit breaker aborts the pass; docs stay pending | relaunch — hash idempotency resumes exactly where it stopped |
 | Token overspend | `CLEAN_TOKEN_BUDGET` hard ceiling (same clean-abort semantics) | raise budget or relaunch next window |

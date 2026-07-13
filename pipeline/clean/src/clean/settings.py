@@ -19,6 +19,8 @@ class Settings:
     dry_run: bool = True       # safe no-op until explicitly disabled
     token_budget: int = 0      # 0 = uncapped; else hard per-pass ceiling (in+out tokens)
     playbook_autoapprove: bool = False   # true = supervisor playbook writes go live WITHOUT a human
+    facts: bool = True                   # extract typed numeric facts from sheets (facts.py)
+    facts_dir: str = "/data/brain-facts"  # facts store (facts.db + facts.jsonl); single writer: clean
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -32,4 +34,6 @@ class Settings:
             dry_run=os.environ.get("CLEAN_DRY_RUN", "true").lower() != "false",
             token_budget=int(os.environ.get("CLEAN_TOKEN_BUDGET", cls.token_budget)),
             playbook_autoapprove=os.environ.get("CLEAN_PLAYBOOK_AUTOAPPROVE", "false").lower() == "true",
+            facts=os.environ.get("CLEAN_FACTS", "on").lower() != "off",
+            facts_dir=os.environ.get("BRAIN_FACTS_DIR", cls.facts_dir),
         )

@@ -60,14 +60,15 @@ def eval_curation(work: Path) -> None:
     metric("curation: dedup + allowlist", f"{len(kept)} kept", kept == sorted(GOLDEN["manifest"]))
 
 
-def eval_clean_and_trust(work: Path, raw: Path, brain: Path, state_dir: Path) -> None:
+def eval_clean_and_trust(work: Path, raw: Path, brain: Path, state_dir: Path, facts_dir: Path) -> dict:
     raw.mkdir(parents=True, exist_ok=True)
     shutil.copytree(CORPUS, raw, dirs_exist_ok=True)
     shutil.copy(work / "inventory.json", raw / "_state.json")
     os.environ.setdefault("CLEAN_LLM", "fake-flawed")   # backend selection; everything else is explicit
     from clean.main import run_once
     from clean.settings import Settings
-    cfg = Settings(raw_dir=str(raw), brain_md_dir=str(brain), state_dir=str(state_dir), dry_run=False)
+    cfg = Settings(raw_dir=str(raw), brain_md_dir=str(brain), state_dir=str(state_dir),
+                   facts_dir=str(facts_dir), dry_run=False)
     stats = asyncio.run(run_once(cfg))
     metric("clean: pass completes", f"{stats.get('processed', 0)} processed, {stats.get('errors', 0)} errors",
            stats.get("errors", 0) == 0)
@@ -116,6 +117,26 @@ def eval_clean_and_trust(work: Path, raw: Path, brain: Path, state_dir: Path) ->
                  or (f.get("lastResult") or {}).get("unverified_numbers")
                  or (f.get("lastResult") or {}).get("unanchored_numbers")]
     metric("trust: zero false positives on faithful pages", f"{len(false_pos)} flagged", not false_pos)
+    return stats
+
+
+def eval_facts(facts_dir: Path, stats: dict) -> None:
+    from clean.factstore import query_facts
+    golden = GOLDEN["facts"]
+    rows = query_facts(str(facts_dir), limit=500)
+    metric("facts: verified observations in the store", f"{len(rows)} rows",
+           len(rows) == golden["total"])
+    hits = 0
+    for g in golden["spot_checks"]:
+        got = query_facts(str(facts_dir), metric=g["metric"], entity=g["entity"], period=g["period"])
+        hits += any(r["value_raw"] == g["value_raw"] for r in got)
+    metric("facts: exact value+period spot-checks", f"{hits}/{len(golden['spot_checks'])}",
+           hits == len(golden["spot_checks"]))
+    # the fake-flawed backend seeds one observation whose value is NOT in its cell: the
+    # deterministic validator must reject it and it must never reach the store.
+    bad = query_facts(str(facts_dir), metric="seeded-bad-value")
+    metric("facts: seeded bad value rejected by the validator",
+           f"{stats.get('facts_rejected', 0)} rejected", not bad and stats.get("facts_rejected") == 1)
 
 
 def eval_graph(brain: Path, graphed: Path) -> None:
@@ -128,11 +149,13 @@ def eval_graph(brain: Path, graphed: Path) -> None:
 
 def main() -> int:
     shutil.rmtree(OUT, ignore_errors=True)
-    work, raw, brain, state_dir, graphed = (OUT / d for d in ("work", "raw", "brain-md", "state", "graphed"))
+    work, raw, brain, state_dir, graphed, facts_dir = (
+        OUT / d for d in ("work", "raw", "brain-md", "state", "graphed", "facts"))
     work.mkdir(parents=True)
 
     eval_curation(work)
-    eval_clean_and_trust(work, raw, brain, state_dir)
+    stats = eval_clean_and_trust(work, raw, brain, state_dir, facts_dir)
+    eval_facts(facts_dir, stats)
     eval_graph(brain, graphed)
 
     width = max(len(n) for n, _, _ in RESULTS)
