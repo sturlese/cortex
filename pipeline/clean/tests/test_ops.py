@@ -141,6 +141,47 @@ def test_audit_page_fences_untrusted_content(tmp_path, monkeypatch):
     assert out.index("<<<UNTRUSTED-DATA") < out.index("IGNORE ALL RULES") < out.index("UNTRUSTED-DATA;end>>>")
 
 
+def test_check_claims_records_verdicts_in_state(tmp_path, monkeypatch):
+    """The structured semantic judge persists per-document verdicts and reports problems."""
+    from clean.claims import FakeClaimJudge
+    ctx = _ctx(tmp_path)
+    os.makedirs(tmp_path / "brain" / "general")
+    (tmp_path / "brain" / "general" / "a.md").write_text(
+        "---\nt: x\n---\n\n# T\n\nThe committee approved a 900% budget increase for alien defense measures today.\n")
+    (tmp_path / "a.md").write_text("raw")
+    monkeypatch.setattr(ops, "extract",
+                        lambda path, method: {"text": "Notes about SSO and the renewal only."})
+    msg = asyncio.run(ops.check_claims_impl(ctx, FakeClaimJudge(), "A"))
+    assert "PROBLEMS" in msg
+    claims = ctx.state["files"]["A"]["claims"]
+    assert claims["checked"] == 1
+    assert len(claims["unsupported"]) == 1
+    assert ctx.claims_recorded is True
+    assert any("claim-check" in a for a in ctx.actions)
+    # budget
+    ctx.claim_checks_done = ops.MAX_CLAIM_CHECKS
+    assert "budget exhausted" in asyncio.run(ops.check_claims_impl(ctx, FakeClaimJudge(), "A"))
+    # unknown / incomplete docs degrade to messages, never exceptions
+    assert "unknown file id" in asyncio.run(ops.check_claims_impl(_ctx(tmp_path), FakeClaimJudge(), "ZZ"))
+
+
+def test_fake_ops_runs_sampled_claim_checks(tmp_path, monkeypatch):
+    """The offline supervisor demonstrates the claim-check loop deterministically."""
+    ctx = _ctx(tmp_path)
+    os.makedirs(tmp_path / "brain" / "general")
+    (tmp_path / "brain" / "general" / "a.md").write_text(
+        "---\nt: x\n---\n\n# T\n\nGlobex asked for SSO support before the renewal and confirmed budget approval.\n")
+    (tmp_path / "brain" / "general" / "b.md").write_text("---\nt: x\n---\n\n# T\n\nshort\n")
+    (tmp_path / "a.md").write_text("raw")
+    (tmp_path / "b.pdf").write_text("raw")
+    monkeypatch.setattr(ops, "extract", lambda path, method: {
+        "text": "Globex asked for SSO support before the renewal. Globex confirmed budget approval."})
+    report = asyncio.run(ops.FakeOps(ctx).run("go")).output
+    assert any("claim checks (sampled)" in x for x in report.findings)
+    assert ctx.state["files"]["A"]["claims"]["checked"] == 1
+    assert ctx.state["files"]["A"]["claims"]["unsupported"] == []
+
+
 def test_fake_ops_health_logic(tmp_path):
     ctx = _ctx(tmp_path)
     report = asyncio.run(ops.FakeOps(ctx).run("go")).output

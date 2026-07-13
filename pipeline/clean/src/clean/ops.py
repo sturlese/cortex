@@ -33,6 +33,7 @@ from clean.state import load_state, save_state
 OPS_LIMITS = UsageLimits(request_limit=14, tool_calls_limit=12)
 MAX_REQUEUE = 20      # bounded write-action: the supervisor never mass-mutates state
 MAX_AUDITS = 5        # sampled semantic audit, not an exhaustive (expensive) sweep
+MAX_CLAIM_CHECKS = 3  # structured claim-judge runs per supervision (each is its own LLM call)
 MAX_LIST = 20
 EXCERPT = 6000
 
@@ -47,6 +48,8 @@ class OpsContext:
     brain_md_dir: str
     requeued: list = field(default_factory=list)
     audits_done: int = 0
+    claim_checks_done: int = 0
+    claims_recorded: bool = False        # -> persist state at the end of the run
     playbook_updates: int = 0
     actions: list = field(default_factory=list)
     playbook_autoapprove: bool = False   # default: supervisor PROPOSES, a human approves
@@ -140,6 +143,46 @@ def audit_page_impl(ctx: OpsContext, file_id: str) -> str:
             f"== FRESH SOURCE EXTRACT ({local}) ==\n{source[:EXCERPT]}\nUNTRUSTED-DATA;end>>>")
 
 
+async def check_claims_impl(ctx: OpsContext, judge, file_id: str) -> str:
+    """The structured semantic judge (claims.py) over ONE stored page vs its freshly re-extracted
+    source. Sampled and budgeted; verdicts persist in the state so problems survive the run."""
+    from clean.claims import check_page_claims
+    if ctx.claim_checks_done >= MAX_CLAIM_CHECKS:
+        return "claim-check budget exhausted — reason from the checks you already did."
+    f = ctx.state.get("files", {}).get(file_id)
+    if not f:
+        return f"unknown file id {file_id!r}"
+    rel = (f.get("lastResult") or {}).get("path")
+    local = f.get("localPath")
+    if not rel or not local:
+        return f"{file_id} has no page/source to check"
+    try:
+        with open(os.path.join(ctx.brain_md_dir, rel), encoding="utf-8") as fh:
+            page = fh.read()
+    except FileNotFoundError:
+        return f"page file missing for {file_id} ({rel})"
+    try:
+        source = extract(os.path.join(ctx.raw_dir, local), method_for_ext(os.path.splitext(local)[1]))["text"]
+    except Exception as ex:  # noqa: BLE001 — an unreadable source is itself a finding
+        return f"source extraction failed for {file_id}: {str(ex)[:200]}"
+    ctx.claim_checks_done += 1
+    out = await check_page_claims(judge, page, source)
+    problems = [x for x in out.findings if x.verdict != "supported"]
+    f["claims"] = {
+        "checked": len(out.findings),
+        "unsupported": [x.claim[:160] for x in problems if x.verdict == "unsupported"][:6],
+        "contradicted": [{"claim": x.claim[:160], "evidence": x.evidence[:160]}
+                         for x in problems if x.verdict == "contradicted"][:6],
+    }
+    ctx.claims_recorded = True
+    if problems:
+        ctx.actions.append(f"claim-check {rel}: {len(problems)} problem claim(s) recorded")
+    return (f"checked {len(out.findings)} claim(s) on {rel}: "
+            f"{len(out.findings) - len(problems)} supported, "
+            + (f"{len(problems)} PROBLEMS: " + "; ".join(
+                f"[{x.verdict}] {x.claim[:120]}" for x in problems) if problems else "no problems"))
+
+
 def requeue_impl(ctx: OpsContext, file_ids: list[str], reason: str) -> str:
     """Marks documents for reprocessing next pass. Hard-capped; every requeue is recorded."""
     accepted = []
@@ -186,9 +229,11 @@ eyes: diagnose the SYSTEM, not individual typos.
 
 Method:
 1. pipeline_status() first — read the telemetry.
-2. Investigate what stands out: list_pages() for the problem classes; audit_page() to spot-check a
-   FEW representative pages against their freshly re-extracted source (semantic faithfulness:
-   wrong attribution, inverted trends, missing key facts — things the numeric verifier can't see).
+2. Investigate what stands out: list_pages() for the problem classes; audit_page() to eyeball a
+   page against its freshly re-extracted source; check_claims() for a STRUCTURED verdict per
+   paragraph (supported/unsupported/contradicted with quoted evidence) on the few pages where
+   semantic faithfulness matters most — wrong attribution, inverted trends, invented commitments
+   are things the numeric verifier can't see.
 3. Act, sparingly: requeue() docs that a reprocess can plausibly fix (transient errors, pages that
    failed verification for reasons your playbook update addresses). update_playbook() ONCE with
    short, concrete, corpus-specific guidance if you saw a recurring pattern (max ~1500 chars) —
@@ -208,13 +253,15 @@ playbook proposal. Be the operator you would want at 3am: calm, specific, no dra
 
 
 class FakeOps:
-    """Offline supervisor (CLEAN_LLM=fake): deterministic report from the real telemetry —
-    the demo shows the full loop with zero keys. No actions, ever."""
+    """Offline supervisor (CLEAN_LLM=fake): deterministic report from the real telemetry, plus a
+    sampled claim check (offline heuristic judge) on the first pages — the demo shows the full
+    loop with zero keys. Never requeues, never touches the playbook."""
 
     def __init__(self, ctx: OpsContext):
         self.ctx = ctx
 
     async def run(self, prompt, *, deps=None, usage_limits=None):
+        from clean.claims import FakeClaimJudge
         s = aggregate_status(self.ctx.state)
         errors = s["by_status"].get("error", 0)
         failed = s["verification"].get("failed", 0)
@@ -230,11 +277,31 @@ class FakeOps:
             findings.append(f"{s['verifier_retries']} verifier-triggered retries")
         for msg, n in s["top_errors"]:
             findings.append(f"error x{n}: {msg}")
+
+        # sampled semantic spot-check, deterministic order: same loop shape as the real supervisor
+        judge = FakeClaimJudge()
+        checked = with_problems = 0
+        for fid in sorted(self.ctx.state.get("files", {})):
+            if checked >= 2:
+                break
+            f = self.ctx.state["files"][fid]
+            if f.get("status") != "processed" or not (f.get("lastResult") or {}).get("path"):
+                continue
+            msg = await check_claims_impl(self.ctx, judge, fid)
+            if "claim(s)" in msg:
+                checked += 1
+                with_problems += "PROBLEMS" in msg
+        if checked:
+            findings.append(f"claim checks (sampled): {checked} page(s), "
+                            f"{with_problems} with unsupported/contradicted claims")
+
         recs = []
         if failed:
             recs.append("inspect verify-failed pages; consider a requeue after a playbook update")
         if review:
             recs.append("manual_review pages: enable GEMINI_API_KEY (ocr tool) or fix sources")
+        if with_problems:
+            recs.append("review the recorded claim problems (state: files.*.claims) and the sources")
         if not recs:
             recs.append("no action needed — keep the loop running")
         report = OpsReport(health=health,
@@ -266,6 +333,14 @@ def build_ops_agent(ctx: OpsContext):
     async def audit_page(rc: RunContext[OpsContext], file_id: str) -> str:
         """Spot-audit: the stored page next to a fresh extraction of its source (max 5 per run)."""
         return await asyncio.to_thread(audit_page_impl, rc.deps, file_id)
+
+    @agent.tool
+    async def check_claims(rc: RunContext[OpsContext], file_id: str) -> str:
+        """Structured semantic judge: every prose paragraph of the page ruled
+        supported/unsupported/contradicted against its best-matching source window, with quoted
+        evidence (max 3 per run). Verdicts persist in the pipeline state."""
+        from clean.claims import build_claim_judge
+        return await check_claims_impl(rc.deps, build_claim_judge(), file_id)
 
     @agent.tool
     async def requeue(rc: RunContext[OpsContext], file_ids: list[str], reason: str) -> str:
@@ -318,7 +393,7 @@ async def main() -> int:
     result = await agent.run("Supervise the pipeline now.", deps=ctx, usage_limits=OPS_LIMITS)
     report = result.output
 
-    if ctx.requeued:
+    if ctx.requeued or ctx.claims_recorded:
         save_state(cfg.state_dir, ctx.state)
     md = render_report(report, ctx)
     path = os.path.join(cfg.state_dir, REPORT_FILE)
