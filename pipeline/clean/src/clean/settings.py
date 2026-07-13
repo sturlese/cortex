@@ -18,6 +18,7 @@ class Settings:
     max_docs: int = 0          # 0 = unlimited; >0 = bounded trial run
     dry_run: bool = True       # safe no-op until explicitly disabled
     token_budget: int = 0      # 0 = uncapped; else hard per-pass ceiling (in+out tokens)
+    playbook_autoapprove: bool = False   # true = supervisor playbook writes go live WITHOUT a human
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -30,4 +31,5 @@ class Settings:
             max_docs=int(os.environ.get("CLEAN_MAX_DOCS", cls.max_docs)),
             dry_run=os.environ.get("CLEAN_DRY_RUN", "true").lower() != "false",
             token_budget=int(os.environ.get("CLEAN_TOKEN_BUDGET", cls.token_budget)),
+            playbook_autoapprove=os.environ.get("CLEAN_PLAYBOOK_AUTOAPPROVE", "false").lower() == "true",
         )
