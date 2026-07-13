@@ -1,0 +1,15 @@
+[project]
+name = "answer"
+version = "0.1.0"
+description = "The serving half with the pipeline's guarantees: contract-enforcing retrieval, exact facts, verified answers over MCP."
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# "." keeps tests.conftest importable under bare pytest (CI) — same fix as pipeline/clean.
+pythonpath = ["src", "."]
+addopts = "--cov --cov-report=term-missing"
+
+[tool.coverage.run]
+source_pkgs = ["answer"]
+omit = ["tests/*"]

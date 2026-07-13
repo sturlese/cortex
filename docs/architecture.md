@@ -1,26 +1,27 @@
 # Architecture
 
-cortex is two independent Docker stacks joined by one Markdown corpus.
+cortex is independent Docker stacks joined by shared read-only artifacts (the airgap): the
+pipeline writes `brain-md` + `brain-facts`; two serving options read them.
 
 ```
 ┌──────────────────────── pipeline stack ────────────────────────┐
 │                                                                │
 │  Google Drive ──▶ fetch ──▶ raw/ ──▶ clean ──▶ brain-md/ ──▶ graph ──▶ brain-md-graphed/
-│                 (gog CLI,          (agentic worker:           (entity nodes
-│                  no LLM)            tools + verifier judge)    + wikilinks, no LLM)
+│                 (gog CLI,          (agentic worker:      └──▶ brain-facts/ (typed, cell-
+│                  no LLM)            tools + verifier judge;         verified numbers)
+│                                     facts + versions phases)
 │                                        ▲    │ telemetry                       │
 │                                 playbook    ▼                                 │
-│                                 (memory) ◀── ops supervisor ──▶ ops-report.md │
+│                       (human-approved) ◀── ops supervisor ──▶ ops-report.md   │
 └────────────────────────────────────────────────────────────────┘
-                                   │  brain-md volume (the airgap)
-┌──────────────────────── gbrain stack ──────────────────────────┐
-│                                                                │
-│  ingest (loop) ──▶ gbrain serve (MCP, :3131) ◀── autopilot     │
-│         │                 ▲                                    │
-│     Supabase (pgvector)   │ Tailscale Funnel :443 (public)     │
-│                           ▼                                    │
-│               MCP clients (Claude, ChatGPT, agents)            │
-└────────────────────────────────────────────────────────────────┘
+                    │  brain-md + brain-facts volumes (the airgap)
+┌───────────── answer stack (guarantees) ─────────────┐ ┌──────── gbrain stack (vectors) ────────┐
+│  index (FTS5) ──▶ answer server (MCP)               │ │  ingest ─▶ gbrain serve (MCP, :3131)   │
+│  agent + deterministic ANSWER verifier              │ │  Supabase (pgvector) · Tailscale :443  │
+│  search · ask · query_metrics · read_page           │ │  autopilot · per-client OAuth          │
+└─────────────────────────────────────────────────────┘ └────────────────────────────────────────┘
+                          ▼                                            ▼
+                MCP clients (Claude, ChatGPT, agents — either or both servers)
 ```
 
 ## Stages
@@ -32,6 +33,7 @@ cortex is two independent Docker stacks joined by one Markdown corpus.
 | ops | telemetry → diagnosis → bounded actions | supervisor agent (≤14 req; requeue ≤20, playbook ≤1500c) | `ops-report.md` + playbook |
 | graph | `brain-md/` → `brain-md-graphed/` | deterministic | none (fully regenerable) |
 | corpus | local corpus copy → curated `inventory.json` | deterministic | provenance sidecars |
+| answer | `brain-md/` + `brain-facts/` → verified answers over MCP | agent judged by a deterministic answer verifier | regenerable FTS index |
 | gbrain | `brain-md/` → Postgres + embeddings → MCP | external engine | Supabase |
 
 ## Key decisions
@@ -91,6 +93,7 @@ single writer (clean).
 | Facts agent proposes a wrong mapping | deterministic cell validation drops it (`facts_rejected` + reason) | reprocess after a playbook/prompt fix; the store never held it |
 | A revised document coexists with its draft (near-duplicate) | version phase links them: `superseded_by` demotes the stale page; nothing deleted | consumers prefer current truth; history stays queryable |
 | LLM claims a content date the source doesn't back | `as_of` is downgraded to the provable granularity (or dropped) | the page never asserts more time precision than its evidence |
+| Answering agent invents a figure or citation | deterministic ANSWER verifier → corrective retry → verdict ships with the answer | a failed answer says so on its face; refusal is first-class |
 | Garbled extraction (scan, mojibake) | worker escalates to its `ocr()` tool in-run | no key / OCR fails → page flagged `manual_review` |
 | Provider rate limit (persistent 429) | circuit breaker aborts the pass; docs stay pending | relaunch — hash idempotency resumes exactly where it stopped |
 | Token overspend | `CLEAN_TOKEN_BUDGET` hard ceiling (same clean-abort semantics) | raise budget or relaunch next window |

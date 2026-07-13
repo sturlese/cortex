@@ -13,6 +13,7 @@ Start with the [architecture](architecture.md), then dive into the piece you're 
 | corpus — offline curation | [pipeline/corpus.md](pipeline/corpus.md) |
 | ops — the supervisor agent | [pipeline/ops.md](pipeline/ops.md) |
 | Page frontmatter contract | [pipeline/brain-page-contract.md](pipeline/brain-page-contract.md) |
+| Answer server (contract-enforcing MCP) | [answer.md](answer.md) |
 | Brain server (gbrain) deploy & setup | [gbrain/README.md](gbrain/README.md) |
 | OAuth clients (Claude / ChatGPT / agents) | [gbrain/oauth-clients.md](gbrain/oauth-clients.md) |
 | Deploying both stacks | [operations/deploy.md](operations/deploy.md) |

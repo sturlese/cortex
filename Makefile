@@ -1,6 +1,6 @@
 # cortex — convenience targets.
 .DEFAULT_GOAL := help
-PACKAGES := pipeline/fetch pipeline/clean pipeline/corpus pipeline/graph
+PACKAGES := pipeline/fetch pipeline/clean pipeline/corpus pipeline/graph answer
 PY ?= python3        # stock macOS / Debian ship python3, not `python`; override with `make PY=python`
 
 help: ## Show this help
@@ -19,6 +19,6 @@ test: ## Run every package's test suite (coverage gate 75%)
 	done
 
 lint: ## Ruff over all Python packages
-	ruff check pipeline evals
+	ruff check pipeline evals answer
 
 .PHONY: help demo eval test lint
