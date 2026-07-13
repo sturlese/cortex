@@ -50,6 +50,51 @@ def test_render_month_threads_users_and_mentions():
     assert "U9" not in doc
 
 
+def test_orphaned_thread_replies_survive():
+    """A reply whose parent is not in this month's messages (cross-month thread, or a tombstoned
+    root dropped as empty) must be promoted to top level, not silently lost."""
+    msgs = [
+        {"ts": "1768382100.0", "user": "U2", "text": "orphan reply body", "thread_ts": "1768300000.0"},
+        {"ts": "1768300000.0", "user": "U9", "text": "", "thread_ts": "1768300000.0"},  # tombstoned root
+    ]
+    doc = render_month("general", "2026-01", msgs, {"U2": "Bob Jones"})
+    assert "orphan reply body" in doc
+    assert "↳ 2026-01-14" in doc                      # promoted, still marked as a reply
+
+
+def test_orphan_mark_derives_from_the_message_not_ts_lookups():
+    """The ↳ mark comes from the message's own foreign thread_ts: a malformed ts-less top-level
+    message must not inherit the mark of a ts-less promoted orphan (value-keyed lookups would)."""
+    msgs = [
+        {"user": "U1", "text": "no-ts root"},                                # malformed: no ts
+        {"user": "U2", "text": "no-ts orphan", "thread_ts": "1768300000.0"},  # malformed: no ts
+    ]
+    doc = render_month("general", "2026-01", msgs, {})
+    root_line = next(ln for ln in doc.splitlines() if "no-ts root" in ln)
+    orphan_line = next(ln for ln in doc.splitlines() if "no-ts orphan" in ln)
+    assert not root_line.startswith("↳")
+    assert orphan_line.startswith("↳ ")
+
+
+def test_cross_month_thread_reply_is_mirrored(tmp_path):
+    """Slack files each reply under the day it was POSTED: a February reply to a January thread
+    lands in the February bucket without its parent — the February doc must still carry it."""
+    root = _export(tmp_path, days={
+        "general/2026-01-31.json": [
+            {"ts": "1769860800.0", "user": "U1", "text": "January thread root"},
+        ],
+        "general/2026-02-01.json": [
+            {"ts": "1769947200.0", "user": "U2", "text": "February reply to January thread",
+             "thread_ts": "1769860800.0"},
+        ],
+    })
+    raw = tmp_path / "raw"
+    stats = sync(str(root), str(raw))
+    assert stats["written"] == 2                       # both months mirrored
+    feb = (raw / "slack/general/2026-02.md").read_text()
+    assert "February reply to January thread" in feb
+
+
 def test_collect_months_groups_days(tmp_path):
     root = _export(tmp_path)
     months = collect_months(root)
