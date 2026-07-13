@@ -204,6 +204,30 @@ def _overlaps(span: tuple[int, int], spans: list[tuple[int, int, _Period]]) -> b
     return any(s < pe and e > ps for ps, pe, _ in spans)
 
 
+def provable_as_of(date_str: str | None, hay: str) -> str | None:
+    """The as-of the evidence supports, at the finest PROVABLE granularity. The LLM proposes a
+    content date; this returns it only as far as the source (extraction + filename + path)
+    backs it: full date when the date literally appears, year-month when a compatible signal
+    exists, bare year when only the year does, None when nothing does. as_of is a trust field —
+    it must never say more than the document can prove."""
+    if not date_str:
+        return None
+    m = re.fullmatch(r"(20\d\d)-(\d\d)(?:-(\d\d))?", date_str.strip())
+    if not m:
+        return None
+    year, month = int(m.group(1)), int(m.group(2))
+    if m.group(3) and re.search(rf"\b{re.escape(date_str.strip())}\b", hay):
+        return date_str.strip()
+    signals = [p for _s, _e, p in _period_signals(hay)]
+    if any(p.year == year and p.month == month for p in signals):
+        return f"{year}-{month:02d}"
+    if any(p.year == year and p.month is None and p.quarter == ((month - 1) // 3) + 1 for p in signals):
+        return f"{year}-Q{((month - 1) // 3) + 1}"
+    if any(p.year == year for p in signals):
+        return str(year)
+    return None
+
+
 def parse_period(text: str) -> str | None:
     """Normalize a period expression to 'YYYY', 'YYYY-MM' or 'YYYY-QN' — the shared period
     vocabulary of the trust layer (page anchoring) and the facts layer. None when `text` carries

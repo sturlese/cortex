@@ -63,7 +63,8 @@ def brain_path(entity: dict, filename: str, file_id: str):
     return rel, slug
 
 
-def build_page(out: ProcessorOutput, lineage: dict, entity: dict = None, verification=None) -> str:
+def build_page(out: ProcessorOutput, lineage: dict, entity: dict = None, verification=None,
+               as_of: str | None = None) -> str:
     m = out.metadata
     method = lineage.get("method", "")
     source_format = SOURCE_FORMAT.get(method, "other")
@@ -71,6 +72,10 @@ def build_page(out: ProcessorOutput, lineage: dict, entity: dict = None, verific
     fm = ["---", f"type: {m.type}", f"title: {_yaml(m.title)}"]
     if m.date:
         fm.append(f"date: {m.date}")
+    if as_of:
+        # content validity time, at the finest PROVABLE granularity (verify.provable_as_of / the
+        # entity's path period) — the answer layer ranks current truth with this.
+        fm.append(f"as_of: {_yaml(as_of)}")
     fm.append(f"tags: [{', '.join(_yaml(t) for t in m.tags)}]")
     fm += [
         f'id: "drive:{lineage["fileId"]}"',

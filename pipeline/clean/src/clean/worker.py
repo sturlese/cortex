@@ -21,7 +21,7 @@ from clean.facts import (
 )
 from clean.page import brain_path, build_page, write_page
 from clean.tools import DocContext
-from clean.verify import verify_page
+from clean.verify import provable_as_of, verify_page
 
 MAX_TEXT = 16000  # chars shown up front — the agent pulls more via read_more() when it matters
 
@@ -117,7 +117,11 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
     lineage = {"fileId": file_id, "sourceUri": source_uri, "name": name, "extractedAt": extracted_at, "method": method}
     if ctx.ocr_model:
         lineage["ocr_model"] = ctx.ocr_model   # the agent escalated -> faithful OCR provenance
-    page = build_page(out, lineage, entity, verification)
+    # as_of: the LLM proposes (metadata.date), the evidence decides the granularity; the entity's
+    # path period is the deterministic fallback (a report filed under 2026-Q1 is about 2026-Q1).
+    hay = text + (f"\n{ctx.ocr_text}" if ctx.ocr_text else "") + f"\n{name}\n{source_path}"
+    as_of = provable_as_of(out.metadata.date, hay) or entity.get("period") or entity.get("date")
+    page = build_page(out, lineage, entity, verification, as_of=as_of)
     rel_dir, slug = brain_path(entity, name, file_id)   # stable + unique slug: name + id hash
     rel = write_page(brain_md_dir, rel_dir, slug, page)
 
@@ -159,6 +163,7 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
         "status": entity.get("status"),
         "path": rel,
         "title": out.metadata.title,
+        "as_of": as_of,
         "usage": usage,
     }
     if ctx.ocr_used:
