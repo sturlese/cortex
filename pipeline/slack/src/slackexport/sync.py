@@ -73,7 +73,10 @@ def _substitute_mentions(text: str, users: dict[str, str]) -> str:
 
 
 def render_month(channel: str, month: str, messages: list[dict], users: dict[str, str]) -> str:
-    """Deterministic conversation document: top-level messages in ts order, replies indented."""
+    """Deterministic conversation document: top-level messages in ts order, replies indented.
+    Replies whose parent is not in this month are promoted to top level (marked ↳) — Slack files
+    each reply under the day it was POSTED, so threads crossing a month boundary (or replies to
+    a tombstoned root) would otherwise vanish from the mirror."""
     replies: dict[str, list[dict]] = defaultdict(list)
     top: list[dict] = []
     for m in sorted(messages, key=_ts):
@@ -85,6 +88,15 @@ def render_month(channel: str, month: str, messages: list[dict], users: dict[str
         else:
             top.append(m)
 
+    # orphaned replies: their parent lives in another month (or was dropped as empty) — keep them
+    top_ts = {m.get("ts") for m in top}
+    orphan_ts: set[str] = set()
+    for thread in [t for t in replies if t not in top_ts]:
+        for r in replies.pop(thread):
+            orphan_ts.add(r.get("ts", ""))
+            top.append(r)
+    top.sort(key=_ts)
+
     def line(m: dict, indent: str = "") -> str:
         when = datetime.fromtimestamp(_ts(m), tz=UTC).strftime("%Y-%m-%d %H:%M")
         who = users.get(m.get("user", ""), m.get("user") or m.get("username") or "unknown")
@@ -93,7 +105,8 @@ def render_month(channel: str, month: str, messages: list[dict], users: dict[str
 
     lines = [f"#{channel} — {month} (Slack)", ""]
     for m in top:
-        lines.append(line(m))
+        mark = "↳ " if m.get("ts", "") in orphan_ts else ""
+        lines.append(mark + line(m))
         for r in replies.get(m.get("ts", ""), []):
             lines.append(line(r, indent="    ↳ "))
         lines.append("")
