@@ -62,6 +62,20 @@ def test_orphaned_thread_replies_survive():
     assert "↳ 2026-01-14" in doc                      # promoted, still marked as a reply
 
 
+def test_orphan_mark_derives_from_the_message_not_ts_lookups():
+    """The ↳ mark comes from the message's own foreign thread_ts: a malformed ts-less top-level
+    message must not inherit the mark of a ts-less promoted orphan (value-keyed lookups would)."""
+    msgs = [
+        {"user": "U1", "text": "no-ts root"},                                # malformed: no ts
+        {"user": "U2", "text": "no-ts orphan", "thread_ts": "1768300000.0"},  # malformed: no ts
+    ]
+    doc = render_month("general", "2026-01", msgs, {})
+    root_line = next(ln for ln in doc.splitlines() if "no-ts root" in ln)
+    orphan_line = next(ln for ln in doc.splitlines() if "no-ts orphan" in ln)
+    assert not root_line.startswith("↳")
+    assert orphan_line.startswith("↳ ")
+
+
 def test_cross_month_thread_reply_is_mirrored(tmp_path):
     """Slack files each reply under the day it was POSTED: a February reply to a January thread
     lands in the February bucket without its parent — the February doc must still carry it."""

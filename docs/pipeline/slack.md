@@ -9,7 +9,8 @@ a file contract, and a second source rides the entire pipeline unchanged.
 
 - One document per **channel-month** (`slack/<channel>/<YYYY-MM>.md`): messages in timestamp
   order, thread replies indented under their parents, `<@U…>` mentions and authors resolved to
-  display names via `users.json`.
+  display names via `users.json`. Replies whose parent lives outside the month (threads cross
+  month boundaries; roots get tombstoned) are promoted to top level marked `↳` — never dropped.
 - Inventory entries under stable ids (`slack-<sha1(channel/month)>`) with the six contract
   fields; `orgUnit = channel` (pages land under `units/<channel>`, ACL rules can target them);
   `sourceUri` becomes a workspace permalink when `--team` is given.

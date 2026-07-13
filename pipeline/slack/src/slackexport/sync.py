@@ -90,11 +90,8 @@ def render_month(channel: str, month: str, messages: list[dict], users: dict[str
 
     # orphaned replies: their parent lives in another month (or was dropped as empty) — keep them
     top_ts = {m.get("ts") for m in top}
-    orphan_ts: set[str] = set()
     for thread in [t for t in replies if t not in top_ts]:
-        for r in replies.pop(thread):
-            orphan_ts.add(r.get("ts", ""))
-            top.append(r)
+        top.extend(replies.pop(thread))
     top.sort(key=_ts)
 
     def line(m: dict, indent: str = "") -> str:
@@ -105,7 +102,8 @@ def render_month(channel: str, month: str, messages: list[dict], users: dict[str
 
     lines = [f"#{channel} — {month} (Slack)", ""]
     for m in top:
-        mark = "↳ " if m.get("ts", "") in orphan_ts else ""
+        # only promoted orphans carry a foreign thread_ts at top level (the partition above)
+        mark = "↳ " if m.get("thread_ts") and m.get("thread_ts") != m.get("ts") else ""
         lines.append(mark + line(m))
         for r in replies.get(m.get("ts", ""), []):
             lines.append(line(r, indent="    ↳ "))
