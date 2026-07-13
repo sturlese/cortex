@@ -105,6 +105,100 @@ def test_repeated_token_counted_once():
     assert v.numbers_unverified == ["55%"]
 
 
+# ── period anchoring: right number, wrong period gets flagged ────────────────
+_KPI_SRC = ("| month | users | arr |\n"
+            "| 2026-01 | 1250 | 480000 |\n"
+            "| 2026-02 | 1310 | 495000 |\n"
+            "| 2026-03 | 1400 | 512000 |")
+
+
+def test_wrong_month_attribution_unanchored():
+    """The figure EXISTS in the source but the page ties it to a month the source contradicts —
+    the exact failure the presence check alone cannot see."""
+    v = verify_page("ARR reached 512000 in 2026-01.", None, _KPI_SRC)
+    assert v.verdict == "partial"
+    assert v.numbers_unanchored == ["512000"]
+    assert v.numbers_unverified == []
+
+
+def test_correct_month_attribution_anchored():
+    v = verify_page("ARR reached 512000 in 2026-03.", None, _KPI_SRC)
+    assert v.verdict == "verified"
+    assert v.numbers_unanchored == []
+
+
+def test_year_only_claim_never_contradicts_month_source():
+    v = verify_page("ARR reached 512000 in 2026.", None, _KPI_SRC)
+    assert v.verdict == "verified"
+
+
+def test_quarter_claim_compatible_with_month_inside_it():
+    assert verify_page("Q1 2026 ARR: 495000.", None, _KPI_SRC).verdict == "verified"
+    v = verify_page("Q2 2026 ARR: 495000.", None, _KPI_SRC)
+    assert v.verdict == "partial"
+    assert v.numbers_unanchored == ["495000"]
+
+
+def test_month_word_matches_numeric_month():
+    src = "Revenue for 2026-03 was 512000."
+    assert verify_page("Revenue in March 2026 was 512000.", None, src).verdict == "verified"
+    v = verify_page("Revenue in January 2026 was 512000.", None, src)
+    assert v.numbers_unanchored == ["512000"]
+
+
+def test_no_period_on_the_figures_line_never_flags():
+    v = verify_page("Key metric: 512000.", None, _KPI_SRC)
+    assert v.verdict == "verified"
+
+
+def test_source_occurrence_without_nearby_period_anchors():
+    """When at least one source occurrence's line carries no period signal, the figure anchors —
+    absence of signal is never treated as a contradiction."""
+    src = "Key metric: 512000.\n\nAppendix for 2026-01 follows.\n\n| 2026-03 | 512000 |"
+    v = verify_page("In 2026-01 the metric was 512000.", None, src)
+    assert v.verdict == "verified"
+
+
+def test_multiple_occurrences_one_compatible_anchors():
+    src = "| 2026-01 | 512000 |\n| 2026-03 | 512000 |"
+    assert verify_page("In 2026-01: 512000.", None, _KPI_SRC + "\n" + src).verdict == "verified"
+
+
+def test_date_tokens_are_exempt_from_anchoring():
+    """A date IS a period assertion; it must never be flagged as misattributed to itself."""
+    v = verify_page("Both 2026-01 and 2026-03 appear in the data.", None, _KPI_SRC)
+    assert v.verdict == "verified"
+    assert v.numbers_unanchored == []
+
+
+def test_period_only_in_filename_never_contradicts():
+    """Reports often carry the period only in the filename: the figure's source line then has no
+    period signal, so the absence rule anchors it — the page's Q1 claim is never flagged."""
+    v = verify_page("Total for Q1 2026: 512000.", None, "Grand total: 512000",
+                    context="Report Q1 2026.xlsx")
+    assert v.verdict == "verified"
+
+
+def test_mostly_misattributed_is_failed():
+    v = verify_page("In 2026-01 ARR was 512000 and users were 1400.", None, _KPI_SRC)
+    assert v.verdict == "failed"
+    assert set(v.numbers_unanchored) == {"512000", "1400"}
+
+
+def test_invented_and_misattributed_combine_into_the_verdict():
+    v = verify_page("In 2026-01 ARR was 512000, margin 77%.", None, _KPI_SRC)
+    assert v.numbers_unverified == ["77%"]
+    assert v.numbers_unanchored == ["512000"]
+    assert v.verdict == "failed"          # 2 problems over 4 figures (dates excluded from problems)
+
+
+def test_verified_figures_carry_source_spans():
+    src = "Revenue was $1.2M in Q1."
+    v = verify_page("Revenue reached $1.2M.", None, src)
+    start, end = v.numbers_spans["1.2M"]
+    assert src[start:end].strip().startswith("1.2M")
+
+
 # ── mentions are advisory ────────────────────────────────────────────────────
 def test_mentions_found_case_and_accent_insensitive():
     v = verify_page("body", _meta(["Café Rio", "INITECH"]), "about cafe rio and Initech, S.L.")

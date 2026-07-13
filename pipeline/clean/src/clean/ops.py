@@ -98,7 +98,9 @@ def list_pages_impl(ctx: OpsContext, kind: str) -> str:
         )
         if not match:
             continue
-        note = f.get("error") or ", ".join(r.get("unverified_numbers", [])) or r.get("path") or ""
+        note = (f.get("error")
+                or ", ".join([*r.get("unverified_numbers", []), *r.get("unanchored_numbers", [])])
+                or r.get("path") or "")
         rows.append(f"{fid} · {f.get('name', '?')} · {note[:100]}")
         if len(rows) >= MAX_LIST:
             break

@@ -153,6 +153,10 @@ async def run_once(cfg: Settings) -> dict:
                     stats[f"verify_{verdict}"] = stats.get(f"verify_{verdict}", 0) + 1
                     if verdict == "failed":
                         log(f"VERIFY FAILED {res.get('path')}: unverified figures {res.get('unverified_numbers')}")
+                if res.get("unanchored_numbers"):
+                    stats["verify_unanchored"] = stats.get("verify_unanchored", 0) + 1
+                    log(f"VERIFY UNANCHORED {res.get('path')}: figures tied to a period the source "
+                        f"contradicts {res.get('unanchored_numbers')}")
                 if res.get("ocr"):
                     stats["ocr_docs"] = stats.get("ocr_docs", 0) + 1
                 if res.get("retried"):

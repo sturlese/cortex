@@ -114,7 +114,33 @@ def test_build_page_verification_failed_banner():
     v = Verification(verdict="failed", numbers_total=2, numbers_unverified=["9.9M", "77%"])
     page = build_page(_out(), _lineage(), {}, verification=v)
     assert "verification: failed" in page
-    assert "Verification failed: 2 figure(s)" in page
+    assert "Verification failed: 2 figure(s) could not be traced" in page
+
+
+def test_build_page_unanchored_frontmatter_no_banner_on_partial():
+    from clean.schemas import Verification
+    v = Verification(verdict="partial", numbers_total=4, numbers_unanchored=["512000"])
+    page = build_page(_out(), _lineage(), {}, verification=v)
+    assert 'unanchored_numbers: ["512000"]' in page       # numeric-looking -> quoted (round-trip)
+    assert "unverified_numbers" not in page
+    assert "[!WARNING]" not in page
+
+
+def test_build_page_failed_banner_names_both_problem_classes():
+    from clean.schemas import Verification
+    v = Verification(verdict="failed", numbers_total=4,
+                     numbers_unverified=["77%"], numbers_unanchored=["512000", "1400"])
+    page = build_page(_out(), _lineage(), {}, verification=v)
+    assert "1 figure(s) could not be traced back to the source text" in page
+    assert "2 figure(s) are tied to a period the source contradicts" in page
+
+
+def test_build_page_spans_never_reach_frontmatter():
+    """numbers_spans is state-only telemetry; the page contract must not grow an offsets field."""
+    from clean.schemas import Verification
+    v = Verification(verdict="verified", numbers_total=1, numbers_spans={"1.2M": [10, 14]})
+    page = build_page(_out(), _lineage(), {}, verification=v)
+    assert "numbers_spans" not in page and "1.2M" not in page
 
 
 def test_build_page_without_verification_has_no_field():

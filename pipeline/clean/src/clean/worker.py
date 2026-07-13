@@ -19,9 +19,27 @@ MAX_TEXT = 16000  # chars shown up front — the agent pulls more via read_more(
 
 VERIFIER_FEEDBACK = (
     "\n\nA previous attempt produced this body:\n---\n{body}\n---\n"
-    "DETERMINISTIC VERIFIER: these figures could NOT be found in the source text: {figures}. "
-    "Rewrite the page using ONLY figures that appear in the source; correct or drop the rest."
+    "DETERMINISTIC VERIFIER: {findings}. "
+    "Rewrite the page using ONLY figures that appear in the source, attributed to the same "
+    "period (date/month/quarter) the source gives them; correct or drop the rest."
 )
+
+
+def _verifier_findings(v) -> str:
+    """Human-readable findings for the corrective retry prompt (both problem classes)."""
+    parts = []
+    if v.numbers_unverified:
+        parts.append(f"these figures could NOT be found in the source text: {', '.join(v.numbers_unverified)}")
+    if v.numbers_unanchored:
+        parts.append("these figures ARE in the source but the page ties them to a period the "
+                     f"source contradicts: {', '.join(v.numbers_unanchored)}")
+    return "; ".join(parts)
+
+
+def _quality(v) -> tuple[int, int]:
+    """Orderable page quality: (verdict rank, number of problem figures). Lower is better."""
+    rank = {"verified": 0, "partial": 1, "failed": 2}[v.verdict]
+    return rank, len(v.numbers_unverified) + len(v.numbers_unanchored)
 
 
 def _usage_dict(u) -> dict:
@@ -70,17 +88,18 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
 
     verification = _verify(out)
     retried = False
-    if verification.verdict == "failed":
-        # generator-judge loop: one corrective retry with the verifier's findings as feedback
+    if verification.verdict == "failed" or verification.numbers_unanchored:
+        # generator-judge loop: one corrective retry with the verifier's findings as feedback.
+        # Misattributed-but-present figures fire it too — a wrong period is feedback can fix.
         retried = True
         feedback = prompt + VERIFIER_FEEDBACK.format(
-            body=(out.body_markdown or "")[:4000], figures=", ".join(verification.numbers_unverified))
+            body=(out.body_markdown or "")[:4000], findings=_verifier_findings(verification))
         pr2 = await processor.run(feedback, deps=ctx, usage_limits=RUN_LIMITS)
         usage = _merge_usage(usage, _usage_dict(pr2.usage))
         out2 = pr2.output
         if not out2.skipped:
             v2 = _verify(out2)
-            if v2.verdict != "failed" or len(v2.numbers_unverified) < len(verification.numbers_unverified):
+            if _quality(v2) < _quality(verification):   # the retry wins only if it improves
                 out, verification = out2, v2
 
     lineage = {"fileId": file_id, "sourceUri": source_uri, "name": name, "extractedAt": extracted_at, "method": method}
@@ -110,6 +129,11 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
         result["retried"] = True
     if verification.numbers_unverified:
         result["unverified_numbers"] = verification.numbers_unverified
+    if verification.numbers_unanchored:
+        result["unanchored_numbers"] = verification.numbers_unanchored
+    if verification.numbers_spans:
+        # per-figure source spans (offsets into extraction+context) — auditable trace for ops
+        result["figure_spans"] = verification.numbers_spans
     # auditable trace of every autonomous decision the agent took for this document
     trace = ([f"read_more x{ctx.read_more_calls}"] if ctx.read_more_calls else []) \
         + (["ocr"] if ctx.ocr_used else []) + (["verifier-retry"] if retried else [])
