@@ -27,7 +27,7 @@ from clean.agents import build_model
 from clean.converters import extract, method_for_ext
 from clean.playbook import save_pending, save_playbook
 from clean.schemas import OpsReport
-from clean.settings import Settings
+from clean.settings import Settings, resolve_backend
 from clean.state import load_state, save_state
 
 OPS_LIMITS = UsageLimits(request_limit=14, tool_calls_limit=12)
@@ -313,7 +313,7 @@ class FakeOps:
 
 
 def build_ops_agent(ctx: OpsContext):
-    if os.environ.get("CLEAN_LLM", "openai").lower().startswith("fake"):
+    if resolve_backend() != "openai":
         return FakeOps(ctx)
     model, settings = build_model()
     agent = Agent(model, output_type=OpsReport, instructions=OPS_SYS,

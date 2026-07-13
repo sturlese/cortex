@@ -13,7 +13,7 @@ def split_frontmatter(text: str):
         if m:
             try:
                 return (yaml.safe_load(m.group(1)) or {}), m.group(2)
-            except Exception:
+            except yaml.YAMLError:
                 return {}, text
     return {}, text
 

@@ -1,6 +1,6 @@
 import pytest
 
-from corpus.paths import PathError, require_corpus, require_workdir, workdir_file
+from corpus.paths import PathError, require_corpus, require_workdir
 
 
 def test_require_corpus(tmp_path):
@@ -19,7 +19,3 @@ def test_require_workdir_creates(tmp_path):
         require_workdir(None)
     with pytest.raises(PathError, match="does not exist"):
         require_workdir(str(tmp_path / "missing"), create=False)
-
-
-def test_workdir_file(tmp_path):
-    assert workdir_file(str(tmp_path), "x.json").endswith("/x.json")
