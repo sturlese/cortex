@@ -1,6 +1,6 @@
 # cortex — convenience targets.
 .DEFAULT_GOAL := help
-PACKAGES := pipeline/fetch pipeline/clean pipeline/corpus pipeline/graph pipeline/slack answer
+PACKAGES := pipeline/fetch pipeline/clean pipeline/corpus pipeline/graph pipeline/slack answer benchmark
 PY ?= python3        # stock macOS / Debian ship python3, not `python`; override with `make PY=python`
 
 help: ## Show this help
@@ -12,6 +12,9 @@ demo: ## Run the end-to-end demo over examples/demo-corpus (no API keys needed)
 eval: ## Offline golden evals: curation, placement, trust layer, graph (no API keys)
 	bash evals/run-evals.sh
 
+benchmark: ## The cortex benchmark: ground-truth corpus + whole-system scorecard (offline floor)
+	$(PY) benchmark/src/benchmark/run.py
+
 test: ## Run every package's test suite (coverage gate 75%)
 	@for pkg in $(PACKAGES); do \
 		echo "===== $$pkg ====="; \
@@ -19,6 +22,6 @@ test: ## Run every package's test suite (coverage gate 75%)
 	done
 
 lint: ## Ruff over all Python packages
-	ruff check pipeline evals answer
+	ruff check pipeline evals answer benchmark
 
-.PHONY: help demo eval test lint
+.PHONY: help demo eval benchmark test lint

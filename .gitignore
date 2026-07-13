@@ -34,3 +34,6 @@ examples/out/
 
 # eval harness output (regenerable)
 evals/out/
+
+# benchmark output (regenerable)
+benchmark/out/

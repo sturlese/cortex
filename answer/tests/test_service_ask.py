@@ -41,6 +41,16 @@ def test_unanswerable_question_refuses(service):
     assert res["verification"]["verdict"] == "verified"     # refusing cleanly is verified behavior
 
 
+def test_metric_question_about_unknown_entity_refuses(service):
+    """A known metric + an unknown entity must never be answered with another entity's data
+    (caught by the benchmark's refusal probe)."""
+    res = _ask(service, "what is the arr-usd for zenith-corp?")
+    assert res["refused"] is True
+    # ...while the entity-less form legitimately answers from the store
+    res2 = _ask(service, "what is the arr-usd in 2026-03?")
+    assert res2["refused"] is False and "512000" in res2["answer"]
+
+
 def test_ask_retry_fires_and_improves(service, monkeypatch):
     """A first answer with an invented figure and a bogus citation must fail the deterministic
     verifier; the corrective retry (with findings in the prompt) wins only because it improves."""
