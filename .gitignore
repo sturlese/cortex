@@ -37,3 +37,7 @@ evals/out/
 
 # benchmark output (regenerable)
 benchmark/out/
+
+# local agent tooling & stray lockfiles — never part of the blueprint
+.claude/
+uv.lock
