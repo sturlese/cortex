@@ -6,7 +6,8 @@ requires-python = ">=3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+# "." keeps tests.conftest importable under bare pytest (CI) — same fix as pipeline/clean.
+pythonpath = ["src", "."]
 addopts = "--cov --cov-report=term-missing"
 
 [tool.coverage.run]
