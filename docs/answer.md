@@ -41,6 +41,16 @@ cd answer && docker compose up -d
 | `ANSWER_LLM` | `openai` | `fake` = offline deterministic answering (demo/CI) |
 | `ANSWER_MODEL` | `gpt-5.4` | synthesizer model (`OPENAI_API_KEY` required for `openai`) |
 | `ANSWER_BEARER_TOKEN` | — | when set, the HTTP transport requires `Authorization: Bearer <token>` |
+| `ANSWER_AUDIENCES` | — | this deployment's ACL scope (comma list). Empty = unrestricted. One instance = one scope; run one instance per audience set for multi-tenant |
+
+## Access control
+
+Pages carry `acl:` audience labels (resolved deterministically at ingestion — [ADR
+010](decisions/010-acl.md)); facts inherit their document's audience; dossiers carry the
+intersection of their members'. The service filters **everything** through the deployment's
+`ANSWER_AUDIENCES` scope: out-of-scope pages don't appear in search, can't be read, their
+numbers don't resolve, and even entity existence is scoped. Unlabeled content stays open;
+an unrestricted instance (no `ANSWER_AUDIENCES`) sees everything.
 
 ## Trust model
 

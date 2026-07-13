@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS pages (
   detail_in_source INTEGER NOT NULL DEFAULT 0,
   superseded_by TEXT, supersedes TEXT,
   source_file_id TEXT, source_uri TEXT,
+  acl TEXT,
   body TEXT, mtime REAL, size INTEGER
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(title, body, tags, entity, mentions);
@@ -36,7 +37,19 @@ def connect(state_dir: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path(state_dir))
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    # additive migration for pre-ACL indexes (the index is regenerable, but never break a boot)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)")}
+    if "acl" not in cols:
+        conn.execute("ALTER TABLE pages ADD COLUMN acl TEXT")
     return conn
+
+
+def visible(acl: str | None, audiences: set[str] | None) -> bool:
+    """The one visibility rule (mirrors the pipeline's acl.py — packages share no code):
+    no ACL -> visible to all; unrestricted client (None) -> sees everything; else intersect."""
+    if not acl or audiences is None:
+        return True
+    return bool(set(acl.split(",")) & audiences)
 
 
 def split_frontmatter(text: str) -> tuple[dict, str]:
@@ -82,6 +95,8 @@ def refresh(conn: sqlite3.Connection, brain_md_dir: str) -> dict:
             text = f.read()
         fm, body = split_frontmatter(text)
         tags = " ".join(str(t) for t in fm.get("tags", []) if t) if isinstance(fm.get("tags"), list) else ""
+        acl_list = fm.get("acl")
+        acl = ",".join(str(a) for a in acl_list) if isinstance(acl_list, list) else ""
         row = (
             rel, str(fm.get("title", "") or ""), str(fm.get("type", "") or ""),
             str(fm.get("entity", "") or ""), str(fm.get("unit", "") or ""),
@@ -91,7 +106,7 @@ def refresh(conn: sqlite3.Connection, brain_md_dir: str) -> dict:
             1 if fm.get("detail_in_source") else 0,
             str(fm.get("superseded_by", "") or ""), str(fm.get("supersedes", "") or ""),
             str(fm.get("source_file_id", "") or ""), str(fm.get("source_uri", "") or ""),
-            body, st.st_mtime, st.st_size,
+            acl, body, st.st_mtime, st.st_size,
         )
         with conn:
             old = conn.execute("SELECT rowid FROM pages WHERE path = ?", (rel,)).fetchone()
@@ -104,8 +119,8 @@ def refresh(conn: sqlite3.Connection, brain_md_dir: str) -> dict:
             cur = conn.execute(
                 "INSERT INTO pages (path, title, doc_type, entity, unit, period, as_of, date,"
                 " verification, quality, representation, tier, detail_in_source, superseded_by,"
-                " supersedes, source_file_id, source_uri, body, mtime, size)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
+                " supersedes, source_file_id, source_uri, acl, body, mtime, size)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
             conn.execute(
                 "INSERT INTO pages_fts (rowid, title, body, tags, entity, mentions)"
                 " VALUES (?,?,?,?,?,?)",

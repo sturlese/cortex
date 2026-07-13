@@ -16,8 +16,11 @@ def _db(facts_dir: str) -> str:
 
 
 def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None = None,
-                  period: str | None = None, limit: int = 50) -> list[dict]:
-    """Exact lookups: equality on metric/entity; period matches exactly or by year prefix."""
+                  period: str | None = None, limit: int = 50,
+                  audiences: set | None = None) -> list[dict]:
+    """Exact lookups: equality on metric/entity; period matches exactly or by year prefix.
+    `audiences` filters to rows whose document the client may see (None = unrestricted)."""
+    from answer.index import visible
     if not os.path.exists(_db(facts_dir)):
         return []
     where, args = ["verified = 1"], []
@@ -36,7 +39,7 @@ def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None 
         rows = conn.execute(
             f"SELECT * FROM observations WHERE {' AND '.join(where)}"
             " ORDER BY entity, metric, period, source_ref LIMIT ?", [*args, limit]).fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in rows if visible(dict(r).get("acl"), audiences)]
     finally:
         conn.close()
 

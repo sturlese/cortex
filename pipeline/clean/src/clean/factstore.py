@@ -48,6 +48,10 @@ def _connect(facts_dir: str) -> sqlite3.Connection:
     os.makedirs(facts_dir, exist_ok=True)
     conn = sqlite3.connect(db_path(facts_dir))
     conn.executescript(_SCHEMA)
+    # additive migration: pre-ACL stores gain the column in place (NULL = open, same as no acl)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(observations)")}
+    if "acl" not in cols:
+        conn.execute("ALTER TABLE observations ADD COLUMN acl TEXT")
     return conn
 
 
@@ -64,10 +68,10 @@ def replace_facts(facts_dir: str, file_id: str, rows: list[dict],
             conn.executemany(
                 "INSERT INTO observations (file_id, page_path, entity, org_unit, metric,"
                 " metric_raw, value_raw, value_num, unit, period, dimension, source_ref,"
-                " extracted_at, verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)",
+                " extracted_at, verified, acl) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
                 [(file_id, page_path, entity, org_unit, r["metric"], r["metric_raw"],
                   r["value_raw"], _num(r["value_raw"]), r.get("unit"), r.get("period"),
-                  r.get("dimension"), r["source_ref"], extracted_at)
+                  r.get("dimension"), r["source_ref"], extracted_at, r.get("acl"))
                  for r in rows])
         return len(rows)
     finally:

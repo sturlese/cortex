@@ -64,7 +64,7 @@ def brain_path(entity: dict, filename: str, file_id: str):
 
 
 def build_page(out: ProcessorOutput, lineage: dict, entity: dict = None, verification=None,
-               as_of: str | None = None) -> str:
+               as_of: str | None = None, acl: list | None = None) -> str:
     m = out.metadata
     method = lineage.get("method", "")
     source_format = SOURCE_FORMAT.get(method, "other")
@@ -90,6 +90,10 @@ def build_page(out: ProcessorOutput, lineage: dict, entity: dict = None, verific
         "contextual_retrieval: title",   # embedding-context tier: prepend the title to each chunk (free, no LLM)
         f"tier: {m.tier}",
     ]
+    if acl is not None:
+        # audience labels, resolved deterministically from the source path (acl.py) — the answer
+        # layer filters on them; a page without acl is visible to every client.
+        fm.append("acl: [" + ", ".join(_yaml(a) for a in acl) + "]")
     if verification:
         # trust layer (verify.py): deterministic figure-tracing against the source, NOT LLM-judged
         fm.append(f"verification: {verification.verdict}")

@@ -13,9 +13,11 @@ class Settings:
     model: str = "gpt-5.4"
     reasoning_effort: str = "medium"
     bearer_token: str = ""                     # optional static token for the http transport
+    audiences: tuple | None = None             # this deployment's ACL scope (None = unrestricted)
 
     @classmethod
     def from_env(cls) -> "Settings":
+        aud = os.environ.get("ANSWER_AUDIENCES", "").strip()
         return cls(
             brain_md_dir=os.environ.get("BRAIN_MD_DIR", cls.brain_md_dir),
             facts_dir=os.environ.get("BRAIN_FACTS_DIR", cls.facts_dir),
@@ -24,4 +26,7 @@ class Settings:
             model=os.environ.get("ANSWER_MODEL", cls.model),
             reasoning_effort=os.environ.get("ANSWER_REASONING_EFFORT", cls.reasoning_effort),
             bearer_token=os.environ.get("ANSWER_BEARER_TOKEN", ""),
+            # audiences are a DEPLOYMENT property: one server instance = one ACL scope
+            # (multi-tenant = one instance per audience set, like gbrain's per-client sources)
+            audiences=tuple(a.strip() for a in aud.split(",") if a.strip()) or None if aud else None,
         )

@@ -9,6 +9,7 @@ import datetime
 import os
 
 from clean import factstore
+from clean.acl import resolve_acl
 from clean.agents import RUN_LIMITS, Processor
 from clean.converters import extract, method_for_ext, sheet_rows
 from clean.entity import resolve_entity
@@ -60,7 +61,8 @@ def _merge_usage(a: dict, b: dict) -> dict:
 
 
 async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, catalog=None,
-                      facts_processor=None, facts_dir=None, prose_facts_processor=None) -> dict:
+                      facts_processor=None, facts_dir=None, prose_facts_processor=None,
+                      acl_config=None) -> dict:
     file_id = doc["fileId"]
     entry = doc["entry"]
     name = entry.get("name") or file_id
@@ -121,7 +123,8 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
     # path period is the deterministic fallback (a report filed under 2026-Q1 is about 2026-Q1).
     hay = text + (f"\n{ctx.ocr_text}" if ctx.ocr_text else "") + f"\n{name}\n{source_path}"
     as_of = provable_as_of(out.metadata.date, hay) or entity.get("period") or entity.get("date")
-    page = build_page(out, lineage, entity, verification, as_of=as_of)
+    acl = resolve_acl(acl_config, source_path, entity.get("unit"), entity.get("kind"))
+    page = build_page(out, lineage, entity, verification, as_of=as_of, acl=acl)
     rel_dir, slug = brain_path(entity, name, file_id)   # stable + unique slug: name + id hash
     rel = write_page(brain_md_dir, rel_dir, slug, page)
 
@@ -144,6 +147,9 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
         usage = _merge_usage(usage, _usage_dict(fusage))
         fact_rows = prose_rows_for_store(file_id, kept_pairs)
     if fact_rows is not None:
+        if acl is not None:
+            for r in fact_rows:
+                r["acl"] = ",".join(acl)   # a number inherits its document's audience
         factstore.replace_facts(facts_dir, file_id, fact_rows, page_path=rel,
                                 entity=entity.get("slug"), org_unit=entity.get("unit"),
                                 extracted_at=extracted_at)
@@ -164,6 +170,7 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
         "path": rel,
         "title": out.metadata.title,
         "as_of": as_of,
+        "acl": acl,
         "usage": usage,
     }
     if ctx.ocr_used:

@@ -37,7 +37,7 @@
     ],
     "entities/initech/kpi-metrics-2026-261367.md": [
       "entity: initech", "representation: digest", "detail_in_source: true",
-      "as_of: 2026-01", "verification: verified"
+      "as_of: 2026-01", "verification: verified", "acl: [sales]"
     ],
     "prospects/hooli/pitch-deck-eb4cec.md": [
       "entity: hooli", "entity_kind: prospect", "stage: Evaluating", "verification: verified"
