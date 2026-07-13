@@ -40,8 +40,10 @@ figure to the wrong month in another** so you can watch the verifier catch both 
 the judge loop correct them — look for `· self-corrected` in the log and `verify_retries: 2` in
 the stats. The KPI sheet's numbers also land as cell-verified **facts**
 (`examples/out/brain-facts/facts.jsonl`) — including one seeded wrong value the validator
-rejects. Inspect `examples/out/`, then run `make eval` for the 14-metric golden scorecard. Swap
-in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
+rejects. A seeded near-duplicate ("Quarterly Report … FINAL") becomes an explicit
+`supersedes` chain, and every page carries a **provable `as_of`**. Inspect `examples/out/`,
+then run `make eval` for the 15-metric golden scorecard. Swap in `CLEAN_LLM=openai` +
+`OPENAI_API_KEY` for real pages.
 
 ## If you only have 5 minutes
 
@@ -66,6 +68,10 @@ in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
   each prose document — to `(entity, metric, value, unit, period)` observations; a deterministic
   validator re-reads every claimed cell/quote and only literal matches enter the store (SQLite +
   diffable JSONL, one `source_ref` per number). The agent judges, the source decides.
+- **time** — every page carries a provable `as_of` (the LLM proposes a content date, code verifies
+  how much of it the evidence backs), and near-duplicate revisions become an explicit
+  `supersedes` chain (deterministic candidates, an agent judges lineage) — stale truth is
+  demoted, never silently served.
 - **ops** — the supervisor agent: reads code-aggregated telemetry, spot-audits pages against
   freshly re-extracted sources, requeues bounded work, distills the workers' playbook, writes
   `ops-report.md`. Human-on-the-loop by construction.
