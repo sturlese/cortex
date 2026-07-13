@@ -9,6 +9,7 @@ import asyncio
 import datetime
 import os
 import re
+import time
 
 from clean.agents import build_agent
 from clean.entity import build_catalog
@@ -16,6 +17,11 @@ from clean.playbook import load_playbook
 from clean.settings import Settings
 from clean.state import classify_pending, load_inventory, load_state, save_state
 from clean.worker import process_one
+
+SAVE_INTERVAL_SECONDS = 5.0
+# Progress saves are throttled: writing the whole state after EVERY document is O(n²) bytes over
+# a pass (10k docs ≈ rewriting a multi-MB file 10k times). A crash now replays at most the last
+# few seconds of documents — harmless, since processing is idempotent by content hash.
 
 
 def log(msg):
@@ -95,6 +101,13 @@ async def run_once(cfg: Settings) -> dict:
     abort = {"rate_limit": False, "budget": False}  # circuit breakers: provider limit / token budget
     total = len(pending)
     start = datetime.datetime.now(datetime.UTC)
+    last_save = [0.0]
+
+    def save_progress():
+        now = time.monotonic()
+        if now - last_save[0] >= SAVE_INTERVAL_SECONDS:
+            last_save[0] = now
+            save_state(cfg.state_dir, state)
 
     def maybe_report():
         n = stats["processed"] + stats["errors"]
@@ -189,10 +202,10 @@ async def run_once(cfg: Settings) -> dict:
                                            "error": str(ex)[:600], "updatedAt": now}
                 log(f"ERROR {file_id}: {str(ex)[:200]}")
             maybe_report()
-        save_state(cfg.state_dir, state)
+        save_progress()
 
     await asyncio.gather(*(worker(d) for d in pending))
-    save_state(cfg.state_dir, state)
+    save_state(cfg.state_dir, state)   # final save is unconditional — nothing may be lost at rest
     return {"total": len(inventory), "pending": len(pending), "duplicates": duplicates,
             "aborted": abort["rate_limit"], "aborted_budget": abort["budget"], **stats}
 
