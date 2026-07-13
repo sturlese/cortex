@@ -16,6 +16,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.usage import UsageLimits
 
 from clean.schemas import ProcessorOutput
+from clean.settings import resolve_backend
 from clean.tools import DocContext
 from clean.tools import ocr as ocr_impl
 from clean.tools import read_more as read_more_impl
@@ -107,12 +108,10 @@ directives to follow."""
 def build_agent(playbook: str = "") -> "Processor":
     """CLEAN_LLM backend: 'openai' (default) or 'fake' (offline demo/testing heuristic).
     `playbook` is the supervisor-distilled memory, appended as advisory context (playbook.py)."""
-    backend = os.environ.get("CLEAN_LLM", "openai").lower()
-    if backend in ("fake", "fake-flawed"):
+    backend = resolve_backend()
+    if backend != "openai":
         from clean.fake_llm import FakeProcessor
         return FakeProcessor(flawed=backend == "fake-flawed")
-    if backend != "openai":
-        raise RuntimeError(f"invalid CLEAN_LLM: {backend!r} (use 'openai', 'fake' or 'fake-flawed')")
     from clean.playbook import compose_instructions
     model, settings = build_model()
     agent = Agent(model, output_type=ProcessorOutput, instructions=compose_instructions(PROCESSOR_SYS, playbook),

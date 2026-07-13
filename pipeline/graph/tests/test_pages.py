@@ -1,4 +1,4 @@
-from graph.pages import page_mentions, render_node, rewrite_doc, split_frontmatter
+from graph.pages import _y, page_mentions, render_node, rewrite_doc, split_frontmatter
 
 DOC = """---
 type: contract
@@ -78,6 +78,27 @@ def test_render_node_yaml_implicit_typed_names_round_trip():
                           "aliases": [name], "mentions": 2})
         fm2 = yaml.safe_load(s2.split("\n---\n", 1)[0].removeprefix("---\n"))
         assert name in fm2["aliases"], (name, fm2["aliases"])
+
+
+def test_yaml_scalar_emit_parse_round_trips_as_a_pair():
+    """Contract guard binding the emitter to the parser: what _y writes, split_frontmatter must
+    read back as the identical STRING. clean/page._yaml (emit) and answer/index.split_frontmatter
+    (parse) are hand-mirrored copies of these two in other packages that share no code, so this
+    pins the invariant they all depend on — an unquoted YAML 1.1 implicit scalar (date, bool, int,
+    null-word) must never be re-typed on read. Exercises the emit->parse path as one unit, unlike
+    the render_node tests above that parse with yaml.safe_load directly."""
+    tricky = [
+        "2001-12-14", "0000-00-00", "2026-02-30",     # ISO dates, incl. invalid-but-timestamp-shaped
+        "on", "Off", "yes", "No", "true", "FALSE",     # YAML 1.1 booleans
+        "null", "Null", "~", "none",                   # null-ish (lowercase 'none' is a plain string)
+        "1984", "0x1F", "0b101", "1_000", "3.14",      # decimal/hex/binary/underscored ints, float
+        "a: b", "value #hash", "- dash", "* star",     # YAML indicators -> must quote
+        "Acme Holdings", "café-AG",                    # genuinely plain (ascii + unicode)
+    ]
+    for v in tricky:
+        fm, body = split_frontmatter(f"---\ntitle: {_y(v)}\n---\nbody\n")
+        assert fm["title"] == v, (v, fm.get("title"))
+        assert body.strip() == "body"
 
 
 def test_page_mentions_tolerates_non_string_names():

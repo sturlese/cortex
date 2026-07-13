@@ -8,8 +8,6 @@ operations a client needs, enforcing the page contract server-side:
 - ask():           the full loop — agent gathers evidence, deterministic verifier judges the
                    answer (figures + citations), one corrective retry, verdict attached.
 """
-import re
-
 from answer import index, metrics, retrieve
 from answer.settings import Settings
 from answer.synthesize import ANSWER_LIMITS, SynthesisContext, build_synthesizer
@@ -148,7 +146,3 @@ class AnswerService:
             "verification": verdict,
             "retried": retried,
         }
-
-
-def slug_tokens(text: str) -> set[str]:
-    return set(re.findall(r"[a-z0-9][a-z0-9-]*", text.lower()))

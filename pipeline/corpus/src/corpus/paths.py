@@ -27,7 +27,3 @@ def require_workdir(path: str | None, create: bool = True) -> str:
     elif not os.path.isdir(path):
         raise PathError(f"--workdir does not exist: {path}")
     return os.path.abspath(path)
-
-
-def workdir_file(workdir: str, name: str) -> str:
-    return os.path.join(workdir, name)

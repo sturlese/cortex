@@ -7,6 +7,23 @@ Frozen: configuration is data, not shared mutable state.
 import os
 from dataclasses import dataclass
 
+_VALID_BACKENDS = ("openai", "fake", "fake-flawed")
+
+
+def resolve_backend() -> str:
+    """Read + validate CLEAN_LLM once, at call time (never at import). Returns one of
+    'openai' | 'fake' | 'fake-flawed'.
+
+    Single source of truth for backend selection across every agent in the package (agents,
+    facts, claims, versions, dossiers, ops): an unknown value raises here so a typo fails fast
+    instead of silently falling through to the real OpenAI path. Lives in this dependency-light
+    module (not agents.py) so the fake/offline callers can import it without eagerly pulling in
+    pydantic-ai — the reason those callers import build_model lazily."""
+    backend = os.environ.get("CLEAN_LLM", "openai").lower()
+    if backend not in _VALID_BACKENDS:
+        raise RuntimeError(f"invalid CLEAN_LLM: {backend!r} (use 'openai', 'fake' or 'fake-flawed')")
+    return backend
+
 
 @dataclass(frozen=True)
 class Settings:
