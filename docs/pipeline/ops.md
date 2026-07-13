@@ -18,7 +18,8 @@ Tools (each with a hard budget, every action recorded):
 |---|---|---|
 | `pipeline_status()` | telemetry aggregated by *code*: statuses, verdicts, OCR/retry counts, top errors | read-only |
 | `list_pages(kind)` | pages by problem class (`verify_failed`, `manual_review`, `error`…) | 20 rows |
-| `audit_page(id)` | the stored page next to a **freshly re-extracted** source — the sampled semantic judge of ADR 002. Content is fenced as UNTRUSTED DATA | 5 per run |
+| `audit_page(id)` | the stored page next to a **freshly re-extracted** source. Content is fenced as UNTRUSTED DATA | 5 per run |
+| `check_claims(id)` | the **structured semantic judge** (claims.py): each prose paragraph deterministically anchored to its best source window, then ruled `supported` / `unsupported` / `contradicted` with verbatim evidence. Verdicts persist in the state (`files.*.claims`) | 3 per run |
 | `requeue(ids, reason)` | mark docs for reprocessing next pass | 20 per run |
 | `update_playbook(content)` | **propose** lessons for the workers' advisory memory | once, ≤1500 chars, **human-approved** |
 

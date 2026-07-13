@@ -40,7 +40,7 @@ figure to the wrong month in another** so you can watch the verifier catch both 
 the judge loop correct them — look for `· self-corrected` in the log and `verify_retries: 2` in
 the stats. The KPI sheet's numbers also land as cell-verified **facts**
 (`examples/out/brain-facts/facts.jsonl`) — including one seeded wrong value the validator
-rejects. Inspect `examples/out/`, then run `make eval` for the 12-metric golden scorecard. Swap
+rejects. Inspect `examples/out/`, then run `make eval` for the 14-metric golden scorecard. Swap
 in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
 
 ## If you only have 5 minutes
@@ -50,7 +50,7 @@ in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
 | [`clean/src/verify.py`](pipeline/clean/src/clean/verify.py) | the trust layer: every figure on a page traced back to its source — and to the *period* the source gives it — deterministically. "Zero invention" AND "no misattribution" are *enforced*, and it judges the generator's retry |
 | [`clean/src/agents.py`](pipeline/clean/src/clean/agents.py) + [`tools.py`](pipeline/clean/src/clean/tools.py) | bounded agency: tool-using workers where a clean doc still costs exactly 1 request |
 | [`clean/src/facts.py`](pipeline/clean/src/clean/facts.py) | the numeric layer: an agent maps each sheet to typed observations, a deterministic validator re-reads every claimed cell — hallucinated numbers cannot enter the store |
-| [`clean/src/ops.py`](pipeline/clean/src/clean/ops.py) | the supervisor: telemetry → diagnosis → sampled semantic audits → bounded actions → a report for a human |
+| [`clean/src/ops.py`](pipeline/clean/src/clean/ops.py) + [`claims.py`](pipeline/clean/src/clean/claims.py) | the supervisor: telemetry → diagnosis → sampled structured claim checks (paragraph anchored to evidence, judged supported/unsupported/contradicted) → bounded actions → a report for a human |
 | [`clean/src/playbook.py`](pipeline/clean/src/clean/playbook.py) | agent memory that cannot go feral: one auditable page, capped, advisory, kill-switched |
 | [`evals/`](evals/) | golden scorecard run on every push: curation, placement, and the trust layer catching a **seeded hallucination** — quality measured, not assumed |
 | [`docs/decisions/`](docs/decisions/) | four ADRs recording *why* — including what was deliberately NOT built |

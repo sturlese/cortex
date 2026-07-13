@@ -67,3 +67,9 @@ The verdict now ranges over problems = unverified ∪ unanchored (same threshold
 figures also fire the generator-judge retry, and each verified figure records the source span
 that anchored it (state-only telemetry). The demo/eval backend seeds one misattribution
 alongside the invention; the golden scorecard requires both to be caught and corrected.
+
+The **separate, sampled LLM-judge stage** this ADR promised for semantic claims now exists:
+`claims.py` — deterministic paragraph→source anchoring feeding a budgeted claim judge
+(`supported`/`unsupported`/`contradicted` with verbatim evidence), run by the supervisor's
+`check_claims` tool (≤3 documents per run), never in the ingestion hot path. Its verdicts are
+advisory telemetry: only deterministic checks may gate pages.

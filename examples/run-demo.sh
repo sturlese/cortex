@@ -73,5 +73,6 @@ echo "  - THE CONTROL LOOP, LIVE: the fake backend deliberately invented two fig
 echo "    quarterly report AND tied a real KPI figure to the wrong month; the verifier caught"
 echo "    both (presence check + period anchoring) and the judge loop corrected the pages —"
 echo "    look for '· self-corrected' in the clean log above and verify_retries=2 in the stats"
-echo "  - the supervisor read the run's telemetry and wrote ops-report.md (health + findings)"
+echo "  - the supervisor read the run's telemetry, ran SAMPLED CLAIM CHECKS (each paragraph"
+echo "    anchored to its source window and judged) and wrote ops-report.md (health + findings)"
 find "$OUT/brain-md" -name '*.md' | sed "s|$OUT/|  |" | sort

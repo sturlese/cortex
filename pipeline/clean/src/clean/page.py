@@ -11,6 +11,10 @@ from clean.schemas import ProcessorOutput
 # Format of the underlying source (so a client knows which tool to open it with).
 SOURCE_FORMAT = {"pdf": "pdf", "sheet": "spreadsheet", "docx": "document", "office": "office", "text": "text"}
 
+# System-appended footer prefixes (digest/minimal source links). Single-sourced: the claim judge
+# (claims.py) must skip these lines — they are page chrome, not model claims.
+SYSTEM_FOOTERS = ("Summary of a live spreadsheet", "Original file:")
+
 # A scalar is emitted plain (unquoted) only when it provably round-trips: it matches a restricted
 # charset AND yaml.safe_load reads it back as the identical string. The round-trip catches every
 # YAML 1.1 implicit type — dates (2001-12-14), hex/binary/underscored ints (0x1F, 1_000), bool/null
@@ -141,13 +145,13 @@ def build_page(out: ProcessorOutput, lineage: dict, entity: dict = None, verific
     body = out.body_markdown or ""
     # the page owns the H1; strip one the model may have added + neutralize --- separators
     body = re.sub(r"^#\s+[^\n]*\n+", "", body).replace("\n---\n", "\n***\n")
-    # digest/minimal: guarantee a visible link to the source
+    # digest/minimal: guarantee a visible link to the source (prefixes: SYSTEM_FOOTERS)
     if out.representation in ("digest", "minimal") and lineage["sourceUri"] not in body:
         if method == "sheet":
-            body = (f"{body}\n\nSummary of a live spreadsheet — "
+            body = (f"{body}\n\n{SYSTEM_FOOTERS[0]} — "
                     f"for exact/current figures, open the original: {lineage['sourceUri']}")
         else:
-            body = f"{body}\n\nOriginal file: {lineage['sourceUri']}"
+            body = f"{body}\n\n{SYSTEM_FOOTERS[1]} {lineage['sourceUri']}"
 
     return "\n".join(fm) + f"\n\n{banner}# {m.title}\n\n{body}\n"
 
