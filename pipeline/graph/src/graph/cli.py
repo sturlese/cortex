@@ -18,6 +18,8 @@ def main(argv=None) -> int:
     p.add_argument("--out", dest="out_dir", required=True, help="output brain-md-graphed. Required.")
     p.add_argument("--min-mentions", type=int, default=2,
                    help="drop entities with fewer than N total mentions (default 2; 1 = keep all)")
+    p.add_argument("--registry", default=None,
+                   help="entity-registry.json (curated identity; see graph/registry.py). Optional.")
     args = p.parse_args(argv)
 
     if not os.path.isdir(args.in_dir):
@@ -25,7 +27,9 @@ def main(argv=None) -> int:
         return 2
     os.makedirs(args.out_dir, exist_ok=True)
 
-    stats = build_graph(args.in_dir, args.out_dir, min_mentions=args.min_mentions)
+    from graph.registry import load_registry
+    registry = load_registry(args.registry)
+    stats = build_graph(args.in_dir, args.out_dir, min_mentions=args.min_mentions, registry=registry)
     print(f"build-graph: {stats['docs']} docs · {stats['entities']} entities "
           f"(from {stats['mentions_raw']} mentions) · {stats['by_type']}")
     return 0

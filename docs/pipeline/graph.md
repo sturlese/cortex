@@ -1,19 +1,35 @@
 # graph — entity graph layer
 
 `pipeline/graph/src/graph/`. Derives an entity graph from the pages' frontmatter `mentions`.
-Deterministic, no LLM, fully regenerable — it never modifies clean's `brain-md` (single-writer);
-it writes a derived copy to `brain-md-graphed`.
+The build is deterministic, no LLM, fully regenerable — it never modifies clean's `brain-md`
+(single-writer); it writes a derived copy to `brain-md-graphed`.
 
 ## How it works
 
 1. **Collect** every `mentions:` entry (name + type) across all pages.
-2. **Canonicalize** names (`normalize.py`): strip accents, case, common punctuation and legal suffixes
-   (S.L., Inc, GmbH, Ltd…), so "Initech", "INITECH, S.L." and "Initech Inc." merge into one entity.
-   Noise (initials, <3 chars) is dropped.
+2. **Canonicalize** names: the **entity registry** first (`registry.py` — curated identity:
+   "GX Industries" → Globex, whatever string rules say), then `normalize.py` mechanics (strip
+   accents, case, punctuation and legal suffixes, so "Initech", "INITECH, S.L." and "Initech
+   Inc." merge). Noise (initials, <3 chars) is dropped.
 3. **Filter** by `--min-mentions` (default 2) — one-off mentions rarely deserve a node.
 4. **Write**:
    - every doc, with a `## Related entities` section of `[[wikilinks]]` appended (body untouched),
-   - one stub node page per entity at `entities/<type>/<slug>.md` (title + aliases frontmatter).
+   - one stub node page per entity at `entities/<type>/<slug>.md` (title + aliases frontmatter;
+     registered entities carry their curated name/type).
+
+## Entity identity (registry + judged merges)
+
+`--registry entity-registry.json` points the build at the curated identity file. To grow it,
+an agent proposes and a **human approves** ([ADR 008](../decisions/008-entity-registry.md)):
+
+```bash
+CLEAN_LLM=fake python -m graph.merges propose --in brain-md/ --registry entity-registry.json
+python -m graph.merges list    --registry entity-registry.json
+python -m graph.merges approve --registry entity-registry.json    # or reject / --index N
+```
+
+Deterministic candidates (similar/contained normalized keys) → merge-judge agent (refuses when
+unsure; the offline fake merges only on token containment) → pending file → your call.
 
 ## Run
 

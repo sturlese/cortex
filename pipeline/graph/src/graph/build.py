@@ -15,7 +15,7 @@ def _walk_md(root: str):
                 yield os.path.join(d, fn)
 
 
-def build_graph(in_dir: str, out_dir: str, min_mentions: int = 2) -> dict:
+def build_graph(in_dir: str, out_dir: str, min_mentions: int = 2, registry=None) -> dict:
     # pass 1: collect mentions from every doc
     mention_counts = Counter()
     docs = []
@@ -27,7 +27,8 @@ def build_graph(in_dir: str, out_dir: str, min_mentions: int = 2) -> dict:
             mention_counts[(name, typ)] += 1
 
     entities = build_entities(
-        [(n, t, c) for (n, t), c in mention_counts.items()], min_mentions=min_mentions
+        [(n, t, c) for (n, t), c in mention_counts.items()],
+        min_mentions=min_mentions, registry=registry,
     )
 
     # pass 2: write docs (with wikilinks) + entity node pages
@@ -36,7 +37,7 @@ def build_graph(in_dir: str, out_dir: str, min_mentions: int = 2) -> dict:
         p = os.path.join(out_dir, rel)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
-            f.write(rewrite_doc(text, entities))
+            f.write(rewrite_doc(text, entities, registry=registry))
         written.add(os.path.abspath(p))
     for e in entities.values():
         p = os.path.join(out_dir, e["slug"] + ".md")

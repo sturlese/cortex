@@ -40,12 +40,12 @@ def page_mentions(text: str):
     return out
 
 
-def rewrite_doc(text: str, entities: dict) -> str:
+def rewrite_doc(text: str, entities: dict, registry=None) -> str:
     """Appends a '## Related entities' section with [[wikilinks]] to the entities that survive
     the filter. Does NOT touch the rest of the body. No duplicate links."""
     links, seen = [], set()
     for name, _ in page_mentions(text):
-        key = normalize(name)
+        key = (registry.canonical_id(name) if registry else None) or normalize(name)
         if not key or key not in entities or key in seen:
             continue
         seen.add(key)
