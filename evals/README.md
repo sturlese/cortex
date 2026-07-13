@@ -10,6 +10,7 @@ the quality we promised"*. This harness runs the entire pipeline over the fictio
 | **placement** | every page lands in its entity-derived folder with the expected frontmatter |
 | **trust** | the **seeded hallucination** (the `fake-flawed` backend invents two figures in one doc, on purpose) and the **seeded misattribution** (a real figure tied to the wrong month in another doc) are both caught by the verifier and corrected by the judge loop — and the verifier raises **zero false positives** on the faithful pages |
 | **facts** | the KPI sheet becomes exactly the expected typed observations with exact values and periods, and the **seeded wrong-value observation** is rejected by the deterministic cell validator — the store never holds it |
+| **claims** | the offline supervisor runs and its **sampled claim judge** (paragraphs anchored to source windows) raises zero false alarms on faithful pages |
 | **graph** | mention canonicalization yields exactly the expected entity nodes |
 
 ```bash

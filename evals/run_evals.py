@@ -139,6 +139,23 @@ def eval_facts(facts_dir: Path, stats: dict) -> None:
            f"{stats.get('facts_rejected', 0)} rejected", not bad and stats.get("facts_rejected") == 1)
 
 
+def eval_ops_claims(state_dir: Path, raw: Path, brain: Path) -> None:
+    """Run the offline supervisor over the produced state: the sampled claim judge must check
+    pages and raise zero problems on faithful (verbatim) pages — the semantic no-false-alarms
+    counterpart of the numeric zero-false-positives metric."""
+    import clean.ops as ops_mod
+    os.environ.update({"CLEAN_STATE_DIR": str(state_dir), "RAW_DIR": str(raw),
+                       "BRAIN_MD_DIR": str(brain)})
+    rc = asyncio.run(ops_mod.main())
+    metric("ops: offline supervision completes", f"rc={rc}", rc == 0)
+    files = json.loads((state_dir / "clean-state.json").read_text())["files"]
+    checked = [f for f in files.values() if f.get("claims")]
+    problems = sum(len(f["claims"]["unsupported"]) + len(f["claims"]["contradicted"])
+                   for f in checked)
+    metric("claims: sampled judge, zero false alarms on faithful pages",
+           f"{len(checked)} page(s) checked", len(checked) == 2 and problems == 0)
+
+
 def eval_graph(brain: Path, graphed: Path) -> None:
     from graph.build import build_graph
     stats = build_graph(str(brain), str(graphed), min_mentions=2)
@@ -156,6 +173,7 @@ def main() -> int:
     eval_curation(work)
     stats = eval_clean_and_trust(work, raw, brain, state_dir, facts_dir)
     eval_facts(facts_dir, stats)
+    eval_ops_claims(state_dir, raw, brain)
     eval_graph(brain, graphed)
 
     width = max(len(n) for n, _, _ in RESULTS)

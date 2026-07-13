@@ -70,7 +70,9 @@ feedback: the generator-judge loop, with a judge that cannot hallucinate. The or
 
 **A supervisor closes the loop; memory is one auditable page.** A second agent watches the
 system, not the documents: it reads code-aggregated telemetry, spot-audits pages against freshly
-re-extracted sources (the sampled semantic judge; content fenced as untrusted data), requeues
+re-extracted sources — including a **structured claim judge** (each paragraph anchored to its
+best source window, ruled supported/unsupported/contradicted with quoted evidence; content
+fenced as untrusted data) — requeues
 bounded work, and distills lessons into a ≤1500-char playbook **proposal** an operator approves
 before the workers read it — workers → telemetry → supervisor → human approval → playbook →
 workers. Everything it does is capped, recorded in `ops-report.md`, and reversible
