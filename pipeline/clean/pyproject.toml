@@ -6,7 +6,10 @@ requires-python = ">=3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+# "." makes `tests` importable as a namespace package (shared helpers like tests.test_worker's
+# FakeProcessor) under BARE `pytest` too — `python -m pytest` got it implicitly via the cwd,
+# which is why CI (bare pytest) broke while local runs passed.
+pythonpath = ["src", "."]
 addopts = "--cov --cov-report=term-missing"
 
 [tool.coverage.run]
