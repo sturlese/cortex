@@ -48,6 +48,8 @@ services:
       CLEAN_MAX_CONCURRENT: ${CLEAN_MAX_CONCURRENT:-4}
       CLEAN_TOKEN_BUDGET: ${CLEAN_TOKEN_BUDGET:-0}  # hard per-pass spend ceiling (0 = uncapped)
       CLEAN_PLAYBOOK: ${CLEAN_PLAYBOOK:-on}         # off = ignore the supervisor-distilled playbook
+      CLEAN_FACTS: ${CLEAN_FACTS:-on}               # off = skip typed numeric facts extraction
+      BRAIN_FACTS_DIR: /data/brain-facts
       CLEAN_MODEL: ${CLEAN_MODEL:-gpt-5.4}
       CLEAN_REASONING_EFFORT: ${CLEAN_REASONING_EFFORT:-medium}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}           # required to process; clean fails fast without it
@@ -59,6 +61,7 @@ services:
     volumes:
       - raw-drive:/data/raw:ro            # READS what fetch mirrored
       - brain-md:/data/brain-md           # WRITES the corpus (boundary with the brain server). Single writer.
+      - brain-facts:/data/brain-facts     # WRITES the facts store (facts.db + facts.jsonl). Single writer.
       - clean-state:/data/state           # pipeline state (hash-based idempotency)
 
   # ── GOTENBERG sidecar — Office -> PDF (stateless) ──────────────────────────
@@ -113,3 +116,5 @@ volumes:
     external: true      # SHARED with the brain-server stack. Create once: `docker volume create brain-md`
   brain-md-graphed:
     external: true      # derived graph layer. Create once: `docker volume create brain-md-graphed`
+  brain-facts:
+    external: true      # facts store, SHARED with the answer layer. Create once: `docker volume create brain-facts`
