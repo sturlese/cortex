@@ -22,7 +22,9 @@ class Settings:
     facts: bool = True                   # extract typed numeric facts from sheets (facts.py)
     facts_prose: bool = True             # ...and from prose documents (quote-anchored)
     versions: bool = True                # detect near-duplicate versions -> supersedes chain
+    dossiers: bool = True                # regenerate per-entity dossiers when members change
     facts_dir: str = "/data/brain-facts"  # facts store (facts.db + facts.jsonl); single writer: clean
+    dossiers_dir: str = "/data/brain-dossiers"  # dossier layer; single writer: clean
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -39,5 +41,7 @@ class Settings:
             facts=os.environ.get("CLEAN_FACTS", "on").lower() != "off",
             facts_prose=os.environ.get("CLEAN_FACTS_PROSE", "on").lower() != "off",
             versions=os.environ.get("CLEAN_VERSIONS", "on").lower() != "off",
+            dossiers=os.environ.get("CLEAN_DOSSIERS", "on").lower() != "off",
+            dossiers_dir=os.environ.get("BRAIN_DOSSIERS_DIR", cls.dossiers_dir),
             facts_dir=os.environ.get("BRAIN_FACTS_DIR", cls.facts_dir),
         )

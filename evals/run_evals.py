@@ -69,7 +69,7 @@ def eval_clean_and_trust(work: Path, raw: Path, brain: Path, state_dir: Path, fa
     from clean.main import run_once
     from clean.settings import Settings
     cfg = Settings(raw_dir=str(raw), brain_md_dir=str(brain), state_dir=str(state_dir),
-                   facts_dir=str(facts_dir), dry_run=False)
+                   facts_dir=str(facts_dir), dossiers_dir=str(OUT / "dossiers"), dry_run=False)
     stats = asyncio.run(run_once(cfg))
     metric("clean: pass completes", f"{stats.get('processed', 0)} processed, {stats.get('errors', 0)} errors",
            stats.get("errors", 0) == 0)
@@ -159,6 +159,16 @@ def eval_versions(state_dir: Path, brain: Path) -> None:
            "linked" if chain_ok and pages_ok else "missing", chain_ok and pages_ok)
 
 
+def eval_dossiers(dossiers: Path) -> None:
+    """The entity rollup must exist, be judged verified like any page, and carry CURRENT truth:
+    the superseding document's figure, with the draft noted only as history."""
+    page = (dossiers / "globex.md").read_text() if (dossiers / "globex.md").exists() else ""
+    ok = ("verification: verified" in page and "1.3M" in page
+          and "1.2M" not in page and "superseded" in page.lower())
+    metric("dossiers: verified entity rollup with current figures",
+           "globex.md ok" if ok else "missing/inconsistent", ok)
+
+
 def eval_ops_claims(state_dir: Path, raw: Path, brain: Path) -> None:
     """Run the offline supervisor over the produced state: the sampled claim judge must check
     pages and raise zero problems on faithful (verbatim) pages — the semantic no-false-alarms
@@ -221,6 +231,7 @@ def main() -> int:
     stats = eval_clean_and_trust(work, raw, brain, state_dir, facts_dir)
     eval_facts(facts_dir, stats)
     eval_versions(state_dir, brain)
+    eval_dossiers(OUT / "dossiers")
     eval_ops_claims(state_dir, raw, brain)
     eval_graph(brain, graphed)
     eval_answers(brain, facts_dir, OUT / "answer-state")

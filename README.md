@@ -43,7 +43,7 @@ the stats. The KPI sheet's numbers also land as cell-verified **facts**
 rejects. A seeded near-duplicate ("Quarterly Report … FINAL") becomes an explicit
 `supersedes` chain, every page carries a **provable `as_of`**, and step 6 asks the brain three
 questions — an exact figure with cell provenance, a conflict resolved to current truth, and an
-honest refusal. Inspect `examples/out/`, then run `make eval` for the 19-metric golden
+honest refusal. Inspect `examples/out/`, then run `make eval` for the 20-metric golden
 scorecard (including end-to-end **golden Q&A**: exactness, freshness, refusal, retrieval).
 Swap in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
 
@@ -75,6 +75,9 @@ Swap in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
   how much of it the evidence backs), and near-duplicate revisions become an explicit
   `supersedes` chain (deterministic candidates, an agent judges lineage) — stale truth is
   demoted, never silently served.
+- **dossiers** — per-entity rollups ("ask about Acme", answered in one page): regenerated only
+  when the entity's documents change, written by a bounded agent from member pages + verified
+  facts, judged by the same page verifier — current figures, superseded material as history.
 - **ops** — the supervisor agent: reads code-aggregated telemetry, spot-audits pages against
   freshly re-extracted sources, requeues bounded work, distills the workers' playbook, writes
   `ops-report.md`. Human-on-the-loop by construction.

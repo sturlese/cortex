@@ -51,7 +51,9 @@ services:
       CLEAN_FACTS: ${CLEAN_FACTS:-on}               # off = skip typed numeric facts extraction
       CLEAN_FACTS_PROSE: ${CLEAN_FACTS_PROSE:-on}   # off = facts from sheets only
       CLEAN_VERSIONS: ${CLEAN_VERSIONS:-on}         # off = skip the supersedes-chain phase
+      CLEAN_DOSSIERS: ${CLEAN_DOSSIERS:-on}         # off = skip per-entity dossier regeneration
       BRAIN_FACTS_DIR: /data/brain-facts
+      BRAIN_DOSSIERS_DIR: /data/brain-dossiers
       CLEAN_MODEL: ${CLEAN_MODEL:-gpt-5.4}
       CLEAN_REASONING_EFFORT: ${CLEAN_REASONING_EFFORT:-medium}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}           # required to process; clean fails fast without it
@@ -64,6 +66,7 @@ services:
       - raw-drive:/data/raw:ro            # READS what fetch mirrored
       - brain-md:/data/brain-md           # WRITES the corpus (boundary with the brain server). Single writer.
       - brain-facts:/data/brain-facts     # WRITES the facts store (facts.db + facts.jsonl). Single writer.
+      - brain-dossiers:/data/brain-dossiers  # WRITES the per-entity dossier layer. Single writer.
       - clean-state:/data/state           # pipeline state (hash-based idempotency)
 
   # ── GOTENBERG sidecar — Office -> PDF (stateless) ──────────────────────────
@@ -120,3 +123,5 @@ volumes:
     external: true      # derived graph layer. Create once: `docker volume create brain-md-graphed`
   brain-facts:
     external: true      # facts store, SHARED with the answer layer. Create once: `docker volume create brain-facts`
+  brain-dossiers:
+    external: true      # dossier layer (serve it like brain-md). Create once: `docker volume create brain-dossiers`
