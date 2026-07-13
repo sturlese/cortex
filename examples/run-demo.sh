@@ -40,7 +40,7 @@ cp "$OUT/work/inventory.json" "$OUT/raw/_state.json"
 echo "==> [3/6] clean: raw -> brain-md (offline fake LLM; a SEEDED hallucination + a SEEDED misattribution to watch the loop work)"
 CLEAN_LLM=fake-flawed CLEAN_DRY_RUN=false \
 RAW_DIR="$OUT/raw" BRAIN_MD_DIR="$OUT/brain-md" CLEAN_STATE_DIR="$OUT/state" \
-BRAIN_FACTS_DIR="$OUT/brain-facts" \
+BRAIN_FACTS_DIR="$OUT/brain-facts" BRAIN_DOSSIERS_DIR="$OUT/brain-dossiers" \
 PYTHONPATH="$ROOT/pipeline/clean/src" "$PY" -m clean.main --once
 
 echo "==> [4/6] graph: brain-md -> brain-md-graphed (entity nodes + wikilinks)"
@@ -77,6 +77,7 @@ echo
 echo "Done. Look around:"
 echo "  supervisor report    examples/out/state/ops-report.md (health, findings, recommendations)"
 echo "  facts store          examples/out/brain-facts/facts.jsonl (typed, cell-verified numbers)"
+echo "  entity dossiers      examples/out/brain-dossiers/ (verified rollups: status, figures, docs)"
 echo "  curation artifacts   examples/out/work/            (classification matrix, manifest, inventory)"
 echo "  brain pages          examples/out/brain-md/        (entities/ prospects/ units/ general/)"
 echo "  graphed layer        examples/out/brain-md-graphed/ (entity nodes + '## Related entities')"

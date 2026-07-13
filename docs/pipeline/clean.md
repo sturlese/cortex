@@ -61,6 +61,11 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
    entity path period as fallback). After the pass, near-duplicate revisions are detected
    (deterministic name+content gates → a bounded version-judge agent → `supersedes:` /
    `superseded_by:` frontmatter + state). See [ADR 006](../decisions/006-time-semantics.md).
+8. **Dossiers** (`dossiers.py`): per-entity rollups in `brain-dossiers/`, regenerated only when
+   the entity's member set changes (deterministic hash gate). An agent writes from bounded tools
+   (member pages + the entity's verified facts, superseded material flagged as history); the
+   page verifier judges the result and the verdict lands in the dossier's frontmatter. See
+   [ADR 009](../decisions/009-dossiers.md).
 
 ## Orchestration (`main.py`)
 
@@ -100,6 +105,8 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
 | `CLEAN_FACTS` | `on` | `off` disables the typed numeric facts layer ([facts.md](facts.md)) |
 | `CLEAN_FACTS_PROSE` | `on` | `off` disables prose facts (sheets keep working) |
 | `CLEAN_VERSIONS` | `on` | `off` disables near-duplicate version detection (the supersedes chain) |
+| `CLEAN_DOSSIERS` | `on` | `off` disables per-entity dossier regeneration |
+| `BRAIN_DOSSIERS_DIR` | `/data/brain-dossiers` | dossier layer location |
 | `BRAIN_FACTS_DIR` | `/data/brain-facts` | facts store location (facts.db + facts.jsonl) |
 | `CLEAN_TRACE` | — | `logfire` = OpenTelemetry tracing of every agent run (optional dep) |
 | `GEMINI_API_KEY` | — | enables the agent's `ocr()` tool; without it the tool degrades gracefully |

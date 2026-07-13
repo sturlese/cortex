@@ -17,6 +17,7 @@ from clean.facts import build_facts_agent, build_prose_facts_agent
 from clean.factstore import delete_facts, export_jsonl
 from clean.playbook import load_playbook
 from clean.settings import Settings
+from clean.dossiers import build_dossiers
 from clean.state import classify_pending, load_inventory, load_state, save_state
 from clean.versions import detect_versions
 from clean.worker import process_one
@@ -230,10 +231,15 @@ async def run_once(cfg: Settings) -> dict:
         save_progress()
 
     await asyncio.gather(*(worker(d) for d in pending))
-    if cfg.versions and touched and not (abort["rate_limit"] or abort["budget"]):
+    aborted = abort["rate_limit"] or abort["budget"]
+    if cfg.versions and touched and not aborted:
         # post-pass phase: near-duplicate versions become an explicit supersedes chain
         # (deterministic candidates + content gate; an agent judges lineage; see versions.py)
         stats.update(await detect_versions(state, touched, cfg.raw_dir, cfg.brain_md_dir, log=log))
+    if cfg.dossiers and touched and not aborted:
+        # post-pass phase: per-entity dossiers regenerate when their member pages changed
+        # (deterministic staleness; an agent writes, the page verifier judges; see dossiers.py)
+        stats.update(await build_dossiers(cfg, state, touched, log=log))
     save_state(cfg.state_dir, state)   # final save is unconditional — nothing may be lost at rest
     if facts_dir:
         exported = export_jsonl(facts_dir)   # once per pass: the diffable audit trail
