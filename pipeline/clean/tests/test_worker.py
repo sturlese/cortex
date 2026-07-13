@@ -129,6 +129,38 @@ def test_process_one_judge_retry_keeps_original_when_worse(tmp_path):
     assert "333%" not in page
 
 
+def test_process_one_retry_on_misattributed_period(tmp_path):
+    """Period anchoring feeds the judge loop: a real figure tied to the wrong month triggers the
+    corrective retry, and the fixed attribution wins."""
+    bad = _output(body_markdown="Revenue was 512000 in 2026-01.")
+    good = _output(body_markdown="Revenue was 512000 in 2026-03.")
+    proc = FakeProcessor(bad, good)
+    doc = _doc(tmp_path, content="KPI row: 2026-03 revenue 512000.")
+    res = _run(doc, proc, tmp_path)
+    assert res["retried"] is True
+    assert res["verification"] == "verified"
+    assert "unanchored_numbers" not in res
+    assert "ties them to a period" in proc.prompts[1]     # feedback names the misattribution
+    assert "512000" in proc.prompts[1]
+    assert res["figure_spans"]["512000"]                  # span traced back into the source
+    page = (tmp_path / "brain" / res["path"]).read_text()
+    assert "2026-03" in page and "2026-01" not in page
+
+
+def test_process_one_misattribution_kept_when_retry_worse(tmp_path):
+    """A retry that adds an invented figure on top of the misattribution must not win."""
+    bad = _output(body_markdown="Revenue was 512000 in 2026-01.")
+    worse = _output(body_markdown="Revenue was 512000 in 2026-01 and margin hit 999999.")
+    proc = FakeProcessor(bad, worse)
+    doc = _doc(tmp_path, content="KPI row: 2026-03 revenue 512000.")
+    res = _run(doc, proc, tmp_path)
+    assert res["retried"] is True
+    assert res["unanchored_numbers"] == ["512000"]
+    page = (tmp_path / "brain" / res["path"]).read_text()
+    assert "999999" not in page
+    assert 'unanchored_numbers: ["512000"]' in page
+
+
 def test_process_one_no_retry_when_verified(tmp_path):
     proc = FakeProcessor(_output(body_markdown="plain prose, no figures"))
     res = _run(_doc(tmp_path), proc, tmp_path)

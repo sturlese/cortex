@@ -35,16 +35,17 @@ make demo
 
 Runs the entire loop over a fictional company drive: curation + dedup (`corpus`), page generation
 with an offline fake LLM (`clean`), the entity graph (`graph`), and the **supervisor's report**
-(`ops`). The fake backend **deliberately hallucinates two figures in one document** so you can
-watch the verifier catch it and the judge loop correct it — look for `· self-corrected` in the log
-and `verify_retries: 1` in the stats. Inspect `examples/out/`, then run `make eval` for the
-8-metric golden scorecard. Swap in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
+(`ops`). The fake backend **deliberately hallucinates two figures in one document and ties a real
+figure to the wrong month in another** so you can watch the verifier catch both failure modes and
+the judge loop correct them — look for `· self-corrected` in the log and `verify_retries: 2` in
+the stats. Inspect `examples/out/`, then run `make eval` for the 9-metric golden scorecard. Swap
+in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
 
 ## If you only have 5 minutes
 
 | Look at | Why it's interesting |
 |---|---|
-| [`clean/src/verify.py`](pipeline/clean/src/clean/verify.py) | the trust layer: every figure on a page traced back to its source, deterministically — "zero invention" is *enforced*, and it judges the generator's retry |
+| [`clean/src/verify.py`](pipeline/clean/src/clean/verify.py) | the trust layer: every figure on a page traced back to its source — and to the *period* the source gives it — deterministically. "Zero invention" AND "no misattribution" are *enforced*, and it judges the generator's retry |
 | [`clean/src/agents.py`](pipeline/clean/src/clean/agents.py) + [`tools.py`](pipeline/clean/src/clean/tools.py) | bounded agency: tool-using workers where a clean doc still costs exactly 1 request |
 | [`clean/src/ops.py`](pipeline/clean/src/clean/ops.py) | the supervisor: telemetry → diagnosis → sampled semantic audits → bounded actions → a report for a human |
 | [`clean/src/playbook.py`](pipeline/clean/src/clean/playbook.py) | agent memory that cannot go feral: one auditable page, capped, advisory, kill-switched |

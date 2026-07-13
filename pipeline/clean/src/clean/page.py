@@ -86,6 +86,9 @@ def build_page(out: ProcessorOutput, lineage: dict, entity: dict = None, verific
         fm.append(f"verification: {verification.verdict}")
         if verification.numbers_unverified:
             fm.append("unverified_numbers: [" + ", ".join(_yaml(t) for t in verification.numbers_unverified) + "]")
+        if verification.numbers_unanchored:
+            # present in the source, but every occurrence carries a period contradicting the page's
+            fm.append("unanchored_numbers: [" + ", ".join(_yaml(t) for t in verification.numbers_unanchored) + "]")
         if verification.mentions_unverified:
             fm.append("unverified_mentions: [" + ", ".join(_yaml(t) for t in verification.mentions_unverified) + "]")
     if method == "sheet":
@@ -126,10 +129,13 @@ def build_page(out: ProcessorOutput, lineage: dict, entity: dict = None, verific
             "(visual/broken content not captured by deterministic conversion).\n\n"
         )
     if verification and verification.verdict == "failed":
+        missing, misattributed = len(verification.numbers_unverified), len(verification.numbers_unanchored)
+        detail = " and ".join(
+            ([f"{missing} figure(s) could not be traced back to the source text"] if missing else [])
+            + ([f"{misattributed} figure(s) are tied to a period the source contradicts"] if misattributed else []))
         banner += (
-            "> [!WARNING]\n> Verification failed: "
-            f"{len(verification.numbers_unverified)} figure(s) could not be traced back to the "
-            "source text — treat numbers with caution and open the original.\n\n"
+            f"> [!WARNING]\n> Verification failed: {detail} — "
+            "treat numbers with caution and open the original.\n\n"
         )
 
     body = out.body_markdown or ""

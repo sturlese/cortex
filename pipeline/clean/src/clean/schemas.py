@@ -21,11 +21,18 @@ class PageMetadata(BaseModel):
 
 class Verification(BaseModel):
     """Result of the deterministic faithfulness check (verify.py) — NOT produced by the LLM.
-    verified = every figure in the body traces back to the source text; partial = isolated
-    misses; failed = the page's figures largely can't be traced (invention or mangled extraction)."""
+    verified = every figure in the body traces back to the source text AND none is tied to a
+    period the source contradicts; partial = isolated problems; failed = the page's figures
+    largely can't be trusted (invention, misattribution, or mangled extraction)."""
     verdict: Literal["verified", "partial", "failed"]
     numbers_total: int = 0
     numbers_unverified: list[str] = Field(default_factory=list)
+    numbers_unanchored: list[str] = Field(
+        default_factory=list,
+        description="figures present in the source but asserted for a period every source occurrence contradicts")
+    numbers_spans: dict[str, list[int]] = Field(
+        default_factory=dict,
+        description="first matching source span per verified figure (offsets into extraction+context); state-only")
     mentions_unverified: list[str] = Field(default_factory=list, description="advisory only; never affects the verdict")
 
 

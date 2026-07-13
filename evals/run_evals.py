@@ -92,11 +92,18 @@ def eval_clean_and_trust(work: Path, raw: Path, brain: Path, state_dir: Path) ->
     processed = {fid: f for fid, f in files.items() if f.get("status") == "processed"}
     seeded = [f for f in processed.values() if (f.get("lastResult") or {}).get("retried")]
     if os.environ.get("CLEAN_LLM", "fake-flawed") == "fake-flawed":
-        # the offline demo backend deliberately injects one hallucination: it must be caught + fixed
-        caught = (len(seeded) == 1
-                  and GOLDEN["seeded_hallucination_doc"] in seeded[0].get("name", "")
-                  and seeded[0]["lastResult"]["verification"] == "verified")
-        metric("trust: seeded hallucination caught + corrected", f"{len(seeded)} retry", caught)
+        # the offline demo backend deliberately injects one defect per trust check — an invented
+        # figure (presence) and a real figure tied to the wrong month (period anchoring): each
+        # must be caught by the verifier and corrected by the judge loop.
+        def _seeded(doc_key):
+            f = next((s for s in seeded if GOLDEN[doc_key] in s.get("name", "")), None)
+            last = (f or {}).get("lastResult") or {}
+            return (f is not None and last.get("verification") == "verified"
+                    and not last.get("unverified_numbers") and not last.get("unanchored_numbers"))
+        metric("trust: seeded hallucination caught + corrected",
+               f"{len(seeded)} retries", _seeded("seeded_hallucination_doc") and len(seeded) == 2)
+        metric("trust: seeded misattribution caught + corrected",
+               "period anchored", _seeded("seeded_misattribution_doc"))
     else:
         # a real (or plain-fake) model has nothing seeded to catch; require instead that the loop
         # left no page in a failed verdict — so this metric is meaningful for a live-model eval.
@@ -106,7 +113,8 @@ def eval_clean_and_trust(work: Path, raw: Path, brain: Path, state_dir: Path) ->
 
     false_pos = [f["name"] for f in processed.values()
                  if (f.get("lastResult") or {}).get("verification") != "verified"
-                 or (f.get("lastResult") or {}).get("unverified_numbers")]
+                 or (f.get("lastResult") or {}).get("unverified_numbers")
+                 or (f.get("lastResult") or {}).get("unanchored_numbers")]
     metric("trust: zero false positives on faithful pages", f"{len(false_pos)} flagged", not false_pos)
 
 

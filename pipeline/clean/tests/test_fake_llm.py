@@ -69,6 +69,37 @@ def test_flawed_backend_hallucinates_once_then_behaves():
     assert "99.9M" not in other.body_markdown        # only the targeted doc is corrupted
 
 
+def test_flawed_backend_misattributes_kpi_once_then_behaves():
+    proc = FakeProcessor(flawed=True)
+    prompt = _prompt(filename="KPI metrics 2026.csv", method="sheet",
+                     text="| 2026-03 | 512000 |")
+    first = asyncio.run(proc.run(prompt)).output
+    assert "512000 in 2026-01" in first.body_markdown     # real figure, wrong month
+    retry = asyncio.run(proc.run(prompt + "\n\nA previous attempt produced this body:\n---\nx\n---\n"
+                                          "DETERMINISTIC VERIFIER: ...")).output
+    assert "2026-01" not in retry.body_markdown           # behaves on the judge's retry
+
+
+def test_misattribution_loop_end_to_end_no_mocks(tmp_path, monkeypatch):
+    """Full control loop for the anchoring check: seeded wrong-month figure -> verifier flags it
+    as unanchored -> one retry -> verified page. Zero mocks, zero network."""
+    import asyncio as aio
+
+    from clean.worker import process_one
+    monkeypatch.setenv("CLEAN_LLM", "fake-flawed")
+    p = tmp_path / "KPI metrics 2026.csv"
+    p.write_text("month,arr\n2026-01,480000\n2026-03,512000\n")
+    doc = {"fileId": "F2", "path": str(p),
+           "entry": {"name": p.name, "drivePath": f"/X/{p.name}", "sourceUri": "local://k"}}
+    res = aio.run(process_one(doc, agents.build_agent(), str(tmp_path), str(tmp_path / "brain")))
+    assert res["retried"] is True
+    assert res["verification"] == "verified"
+    assert "unanchored_numbers" not in res
+    page = (tmp_path / "brain" / res["path"]).read_text()
+    assert "512000 in 2026-01" not in page
+    assert res["agent_trace"] == ["verifier-retry"]
+
+
 def test_judge_loop_end_to_end_no_mocks(tmp_path, monkeypatch):
     """The whole control loop with the real fake backend: seeded hallucination -> verifier
     catches it -> one retry -> verified page. Zero mocks, zero network."""

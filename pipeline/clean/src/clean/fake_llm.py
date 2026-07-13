@@ -104,15 +104,21 @@ _DEMO_HALLUCINATION = (
     "(two figures deliberately invented by the fake-flawed demo backend)\n\n"
 )
 
+_DEMO_MISATTRIBUTION = (
+    "Headline: ARR reached 512000 in 2026-01. "
+    "(a real figure deliberately tied to the wrong month by the fake-flawed demo backend)\n\n"
+)
+
 
 class FakeProcessor:
     """Drop-in for the PydanticAI agent: async .run(prompt, ...) -> object with .output/.usage.
     Ignores tools/deps/budgets — its body is a verbatim slice of the source, so pages verify.
 
-    `flawed=True` (CLEAN_LLM=fake-flawed) simulates a hallucinating model ONCE, deterministically:
-    it prepends two invented figures to any "quarterly report" document on the FIRST attempt, and
-    behaves on the judge's retry — so the demo shows the verifier catching the invention and the
-    generator-judge loop correcting it, with zero API keys and zero randomness."""
+    `flawed=True` (CLEAN_LLM=fake-flawed) simulates a misbehaving model ONCE per defect class,
+    deterministically, and behaves on the judge's retry — so the demo shows the verifier catching
+    each defect and the generator-judge loop correcting it, with zero API keys and zero randomness:
+    - "quarterly report" docs get two INVENTED figures prepended (presence check);
+    - "kpi" docs get a real figure tied to the WRONG month (period-anchoring check)."""
 
     def __init__(self, flawed: bool = False):
         self.flawed = flawed
@@ -124,4 +130,6 @@ class FakeProcessor:
             filename, _, _ = _parse_prompt(prompt)
             if "quarterly report" in filename.lower():
                 out = out.model_copy(update={"body_markdown": _DEMO_HALLUCINATION + (out.body_markdown or "")})
+            elif "kpi" in filename.lower():
+                out = out.model_copy(update={"body_markdown": _DEMO_MISATTRIBUTION + (out.body_markdown or "")})
         return types.SimpleNamespace(output=out, usage=_Usage())

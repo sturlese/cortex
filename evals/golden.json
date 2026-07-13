@@ -46,5 +46,6 @@
     ]
   },
   "seeded_hallucination_doc": "Quarterly Report Q1 2026.md",
+  "seeded_misattribution_doc": "KPI metrics 2026.csv",
   "graph": { "entities_total": 1, "node": "entities/organization/globex.md" }
 }
