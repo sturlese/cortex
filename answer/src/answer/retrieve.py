@@ -90,7 +90,9 @@ def search(conn: sqlite3.Connection, query: str, k: int = TOP_K,
         if wants_fresh and p["as_of"] and not p["superseded_by"]:
             adjustments.append((_BOOST_FRESH, f"fresh:{p['as_of']}"))
 
-        score = max(p["bm25"], 0.01)
+        # FTS5 bm25() is NEGATIVE for matches (more negative = more relevant): map it to a
+        # positive base in (0, 1] preserving that order, so factors keep their direction
+        score = 1.0 / (1.0 - min(p["bm25"], 0.0))
         for factor, _label in adjustments:
             score *= factor
         body = p.pop("body") or ""
