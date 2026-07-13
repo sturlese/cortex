@@ -21,6 +21,7 @@ class Settings:
     playbook_autoapprove: bool = False   # true = supervisor playbook writes go live WITHOUT a human
     facts: bool = True                   # extract typed numeric facts from sheets (facts.py)
     facts_prose: bool = True             # ...and from prose documents (quote-anchored)
+    versions: bool = True                # detect near-duplicate versions -> supersedes chain
     facts_dir: str = "/data/brain-facts"  # facts store (facts.db + facts.jsonl); single writer: clean
 
     @classmethod
@@ -37,5 +38,6 @@ class Settings:
             playbook_autoapprove=os.environ.get("CLEAN_PLAYBOOK_AUTOAPPROVE", "false").lower() == "true",
             facts=os.environ.get("CLEAN_FACTS", "on").lower() != "off",
             facts_prose=os.environ.get("CLEAN_FACTS_PROSE", "on").lower() != "off",
+            versions=os.environ.get("CLEAN_VERSIONS", "on").lower() != "off",
             facts_dir=os.environ.get("BRAIN_FACTS_DIR", cls.facts_dir),
         )

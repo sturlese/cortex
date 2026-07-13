@@ -141,6 +141,23 @@ def eval_facts(facts_dir: Path, stats: dict) -> None:
            f"{stats.get('facts_rejected', 0)} rejected", not bad and stats.get("facts_rejected") == 2)
 
 
+def eval_versions(state_dir: Path, brain: Path) -> None:
+    """The near-duplicate revision must become an explicit supersedes chain: state links both
+    documents and both pages carry the frontmatter — the raw material for freshness ranking."""
+    files = json.loads((state_dir / "clean-state.json").read_text())["files"]
+    by_path = {(f.get("lastResult") or {}).get("path"): f for f in files.values()}
+    old = by_path.get(GOLDEN["versions"]["old_page"], {}).get("lastResult", {})
+    new = by_path.get(GOLDEN["versions"]["new_page"], {}).get("lastResult", {})
+    chain_ok = bool(old.get("superseded_by")) and new.get("supersedes") == \
+        next((fid for fid, f in files.items()
+              if (f.get("lastResult") or {}).get("path") == GOLDEN["versions"]["old_page"]), None)
+    old_page = (brain / GOLDEN["versions"]["old_page"]).read_text()
+    new_page = (brain / GOLDEN["versions"]["new_page"]).read_text()
+    pages_ok = "superseded_by:" in old_page and "supersedes:" in new_page
+    metric("time: version chain detected (state + both pages)",
+           "linked" if chain_ok and pages_ok else "missing", chain_ok and pages_ok)
+
+
 def eval_ops_claims(state_dir: Path, raw: Path, brain: Path) -> None:
     """Run the offline supervisor over the produced state: the sampled claim judge must check
     pages and raise zero problems on faithful (verbatim) pages — the semantic no-false-alarms
@@ -175,6 +192,7 @@ def main() -> int:
     eval_curation(work)
     stats = eval_clean_and_trust(work, raw, brain, state_dir, facts_dir)
     eval_facts(facts_dir, stats)
+    eval_versions(state_dir, brain)
     eval_ops_claims(state_dir, raw, brain)
     eval_graph(brain, graphed)
 

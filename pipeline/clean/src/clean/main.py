@@ -18,6 +18,7 @@ from clean.factstore import delete_facts, export_jsonl
 from clean.playbook import load_playbook
 from clean.settings import Settings
 from clean.state import classify_pending, load_inventory, load_state, save_state
+from clean.versions import detect_versions
 from clean.worker import process_one
 
 SAVE_INTERVAL_SECONDS = 5.0
@@ -111,6 +112,7 @@ async def run_once(cfg: Settings) -> dict:
     total = len(pending)
     start = datetime.datetime.now(datetime.UTC)
     last_save = [0.0]
+    touched: set[str] = set()   # docs processed THIS pass — the version phase only re-examines these
 
     def save_progress():
         now = time.monotonic()
@@ -171,6 +173,7 @@ async def run_once(cfg: Settings) -> dict:
                     "sourceUri": e.get("sourceUri"), "rawHash": doc["rawHash"],
                     "status": "processed", "lastResult": res, "updatedAt": now,
                 }
+                touched.add(file_id)
                 stats["processed"] += 1
                 if res.get("skipped"):
                     stats["skipped"] += 1
@@ -227,6 +230,10 @@ async def run_once(cfg: Settings) -> dict:
         save_progress()
 
     await asyncio.gather(*(worker(d) for d in pending))
+    if cfg.versions and touched and not (abort["rate_limit"] or abort["budget"]):
+        # post-pass phase: near-duplicate versions become an explicit supersedes chain
+        # (deterministic candidates + content gate; an agent judges lineage; see versions.py)
+        stats.update(await detect_versions(state, touched, cfg.raw_dir, cfg.brain_md_dir, log=log))
     save_state(cfg.state_dir, state)   # final save is unconditional — nothing may be lost at rest
     if facts_dir:
         exported = export_jsonl(facts_dir)   # once per pass: the diffable audit trail

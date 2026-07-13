@@ -136,7 +136,7 @@ def test_run_once_throttles_state_saves(tmp_path, monkeypatch):
                 "path": f"general/{doc['fileId']}.md", "usage": {}}
     monkeypatch.setattr(clean_main, "process_one", fake)
     cfg = Settings(raw_dir=str(raw), brain_md_dir=str(tmp_path / "brain"),
-                   state_dir=str(tmp_path / "state"), dry_run=False)
+                   state_dir=str(tmp_path / "state"), dry_run=False, versions=False)
     stats = asyncio.run(run_once(cfg))
     assert stats["processed"] == 20
     assert len(saves) < 10                                   # vs 21 with per-doc saves

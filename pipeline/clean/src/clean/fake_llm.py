@@ -128,9 +128,11 @@ class FakeProcessor:
         is_retry = "DETERMINISTIC VERIFIER" in prompt
         if self.flawed and not is_retry and not out.skipped:
             filename, _, _ = _parse_prompt(prompt)
-            if "quarterly report" in filename.lower():
+            low = filename.lower()
+            # the FINAL revision stays clean: the demo's version chain needs one healthy doc
+            if "quarterly report" in low and "final" not in low:
                 out = out.model_copy(update={"body_markdown": _DEMO_HALLUCINATION + (out.body_markdown or "")})
-            elif "kpi" in filename.lower():
+            elif "kpi" in low:
                 out = out.model_copy(update={"body_markdown": _DEMO_MISATTRIBUTION + (out.body_markdown or "")})
         return types.SimpleNamespace(output=out, usage=_Usage())
 
@@ -210,7 +212,7 @@ def prose_facts_from_text(filename: str, text: str, flawed: bool = False):
     from clean.verify import parse_period
 
     obs: list[ProseFact] = []
-    if flawed and "quarterly report" in filename.lower():
+    if flawed and "quarterly report" in filename.lower() and "final" not in filename.lower():
         obs.append(ProseFact(metric="seeded-prose-fact", metric_raw="invented context",
                              value_raw="999999", quote="invented context says 999999 here"))
     for sentence in re.split(r"(?<=[.!?])\s+", text[:4000]):

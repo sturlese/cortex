@@ -2,6 +2,7 @@
   "_comment": "Golden expectations for the offline eval harness (run_evals.py). The corpus is examples/demo-corpus; every id/path below is deterministic (content-derived), so any drift is a real regression.",
   "taxonomy": {
     "./Clients/1. Globex - won/Quarterly Report Q1 2026.md": { "type": "reports", "verdict": "IN" },
+    "./Clients/1. Globex - won/Quarterly Report Q1 2026 FINAL.md": { "type": "reports", "verdict": "IN" },
     "./Clients/1. Globex - won/meeting notes 2026-02-14.txt": { "type": "meeting-minutes", "verdict": "IN" },
     "./Clients/2. Initech/KPI metrics 2026.csv": { "type": "reports", "verdict": "IN" },
     "./Clients/2. Initech/NDA Initech.md": { "type": "legal-contracts", "verdict": "OUT" },
@@ -14,6 +15,7 @@
     "./Sales/web/style.css": { "type": "web-assets", "verdict": "OUT" }
   },
   "manifest": [
+    "./Clients/1. Globex - won/Quarterly Report Q1 2026 FINAL.md",
     "./Clients/1. Globex - won/Quarterly Report Q1 2026.md",
     "./Clients/1. Globex - won/meeting notes 2026-02-14.txt",
     "./Clients/2. Initech/KPI metrics 2026.csv",
@@ -24,13 +26,18 @@
   ],
   "pages": {
     "entities/globex/quarterly-report-q1-2026-4099bc.md": [
-      "entity: globex", "entity_kind: tracked", "status: won", "period: 2026-Q1", "verification: verified"
+      "entity: globex", "entity_kind: tracked", "status: won", "period: 2026-Q1",
+      "as_of: 2026-Q1", "verification: verified", "superseded_by:"
+    ],
+    "entities/globex/quarterly-report-q1-2026-final-3865bd.md": [
+      "entity: globex", "as_of: 2026-Q1", "verification: verified", "supersedes:"
     ],
     "entities/globex/meeting-notes-2026-02-14-3fb561.md": [
-      "entity: globex", "verification: verified"
+      "entity: globex", "as_of: \"2026-02-14\"", "verification: verified"
     ],
     "entities/initech/kpi-metrics-2026-261367.md": [
-      "entity: initech", "representation: digest", "detail_in_source: true", "verification: verified"
+      "entity: initech", "representation: digest", "detail_in_source: true",
+      "as_of: 2026-01", "verification: verified"
     ],
     "prospects/hooli/pitch-deck-eb4cec.md": [
       "entity: hooli", "entity_kind: prospect", "stage: Evaluating", "verification: verified"
@@ -48,13 +55,18 @@
   "seeded_hallucination_doc": "Quarterly Report Q1 2026.md",
   "seeded_misattribution_doc": "KPI metrics 2026.csv",
   "facts": {
-    "total": 10,
+    "total": 11,
     "spot_checks": [
       { "metric": "arr-usd", "entity": "initech", "period": "2026-03", "value_raw": "512000" },
       { "metric": "active-users", "entity": "initech", "period": "2026-01", "value_raw": "1250" },
       { "metric": "nps", "entity": "initech", "period": "2026-02", "value_raw": "44" },
-      { "metric": "revenue-impact", "entity": "globex", "period": null, "value_raw": "1.2M" }
+      { "metric": "revenue-impact", "entity": "globex", "period": null, "value_raw": "1.2M" },
+      { "metric": "revenue-impact", "entity": "globex", "period": null, "value_raw": "1.3M" }
     ]
+  },
+  "versions": {
+    "old_page": "entities/globex/quarterly-report-q1-2026-4099bc.md",
+    "new_page": "entities/globex/quarterly-report-q1-2026-final-3865bd.md"
   },
   "graph": { "entities_total": 1, "node": "entities/organization/globex.md" }
 }

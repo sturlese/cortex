@@ -56,6 +56,11 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
    cell/quote and only literal matches land in the facts store (`brain-facts/`: SQLite + JSONL,
    `source_ref` per number). The agent judges, the source decides — see [facts.md](facts.md)
    and [ADR 005](../decisions/005-facts-layer.md).
+7. **Time** (`versions.py` + `verify.provable_as_of`): every page carries `as_of` — the content's
+   validity time at the finest granularity the evidence proves (LLM proposes, code verifies,
+   entity path period as fallback). After the pass, near-duplicate revisions are detected
+   (deterministic name+content gates → a bounded version-judge agent → `supersedes:` /
+   `superseded_by:` frontmatter + state). See [ADR 006](../decisions/006-time-semantics.md).
 
 ## Orchestration (`main.py`)
 
@@ -94,6 +99,7 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
 | `CLEAN_PLAYBOOK` | `on` | `off` disables injecting the supervisor-distilled playbook |
 | `CLEAN_FACTS` | `on` | `off` disables the typed numeric facts layer ([facts.md](facts.md)) |
 | `CLEAN_FACTS_PROSE` | `on` | `off` disables prose facts (sheets keep working) |
+| `CLEAN_VERSIONS` | `on` | `off` disables near-duplicate version detection (the supersedes chain) |
 | `BRAIN_FACTS_DIR` | `/data/brain-facts` | facts store location (facts.db + facts.jsonl) |
 | `CLEAN_TRACE` | — | `logfire` = OpenTelemetry tracing of every agent run (optional dep) |
 | `GEMINI_API_KEY` | — | enables the agent's `ocr()` tool; without it the tool degrades gracefully |

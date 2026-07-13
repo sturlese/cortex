@@ -89,6 +89,8 @@ single writer (clean).
 | Model invents a figure | deterministic verifier → judge retry → `verification:` flag + banner | supervisor spot-audit; requeue after a playbook update |
 | Model misattributes a figure (right number, wrong period) | period anchoring → judge retry → `unanchored_numbers` flag | same loop; the flag names the exact figures |
 | Facts agent proposes a wrong mapping | deterministic cell validation drops it (`facts_rejected` + reason) | reprocess after a playbook/prompt fix; the store never held it |
+| A revised document coexists with its draft (near-duplicate) | version phase links them: `superseded_by` demotes the stale page; nothing deleted | consumers prefer current truth; history stays queryable |
+| LLM claims a content date the source doesn't back | `as_of` is downgraded to the provable granularity (or dropped) | the page never asserts more time precision than its evidence |
 | Garbled extraction (scan, mojibake) | worker escalates to its `ocr()` tool in-run | no key / OCR fails → page flagged `manual_review` |
 | Provider rate limit (persistent 429) | circuit breaker aborts the pass; docs stay pending | relaunch — hash idempotency resumes exactly where it stopped |
 | Token overspend | `CLEAN_TOKEN_BUDGET` hard ceiling (same clean-abort semantics) | raise budget or relaunch next window |

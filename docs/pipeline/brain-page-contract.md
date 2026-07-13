@@ -7,7 +7,10 @@ brain server and by MCP clients — treat it as an API.
 ---
 type: meeting-notes                  # kebab-case doc type (LLM-chosen)
 title: Q1 board minutes
-date: 2026-03-14                     # content date (optional)
+date: 2026-03-14                     # content date (optional, LLM-proposed)
+as_of: 2026-03                       # content validity time at the finest PROVABLE granularity
+supersedes: "drive:1OldDoc"          # this page is the CURRENT version of that document
+superseded_by: "drive:1NewDoc"       # a newer version exists — prefer it for current truth
 tags: [board, minutes, q1]
 id: "drive:1AbC..."                  # stable id
 source_file_id: 1AbC...              # handle for opening the original (Drive MCP, links)
@@ -56,6 +59,9 @@ mentions:                            # unresolved entities — the graph stage l
 | `unanchored_numbers` | each listed figure EXISTS in the source, but the page ties it to a date/month/quarter every source occurrence contradicts — verify the attribution before quoting |
 | `extraction_method: vision` | body came from OCR (`ocr_model` says which); trust accordingly |
 | `mentions` | unresolved names; the graphed layer links them as `[[wikilinks]]` |
+| `as_of` | when the CONTENT is valid (`YYYY[-MM]` or `YYYY-QN`), only as precise as the source proves — rank current truth with it |
+| `superseded_by` | a newer version of this document exists — demote for "current" questions; keep for history/"as of" questions |
+| `supersedes` | this page is the current version in a chain |
 
 ## Body rules (enforced by prompt + post-processing)
 
