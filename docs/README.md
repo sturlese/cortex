@@ -11,6 +11,7 @@ Start with the [architecture](architecture.md), then dive into the piece you're 
 | facts — typed numeric layer | [pipeline/facts.md](pipeline/facts.md) |
 | graph — entity graph layer | [pipeline/graph.md](pipeline/graph.md) |
 | corpus — offline curation | [pipeline/corpus.md](pipeline/corpus.md) |
+| slack — second source connector | [pipeline/slack.md](pipeline/slack.md) |
 | ops — the supervisor agent | [pipeline/ops.md](pipeline/ops.md) |
 | Page frontmatter contract | [pipeline/brain-page-contract.md](pipeline/brain-page-contract.md) |
 | Answer server (contract-enforcing MCP) | [answer.md](answer.md) |

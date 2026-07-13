@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [pipeline/fetch, pipeline/clean, pipeline/corpus, pipeline/graph, answer]
+        package: [pipeline/fetch, pipeline/clean, pipeline/corpus, pipeline/graph, pipeline/slack, answer]
     defaults:
       run:
         working-directory: ${{ matrix.package }}

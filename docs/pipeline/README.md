@@ -11,7 +11,9 @@ One compose stack (`pipeline/docker-compose.yml`, project `cortex-pipeline`) wit
 | `ops` (profile) | supervisor agent: telemetry → diagnosis → bounded actions → report | [ops.md](ops.md) |
 
 `corpus` is not a service — it's an ad-hoc curation CLI for bootstrapping from a local copy
-([corpus.md](corpus.md)).
+([corpus.md](corpus.md)). `slack` is the second source connector (a workspace export →
+pipeline inventory, [slack.md](slack.md)) — same ad-hoc shape, and the proof that ingestion is
+a contract ([ADR 011](../decisions/011-source-contract.md)).
 
 ## Operate
 

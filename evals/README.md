@@ -14,6 +14,7 @@ the quality we promised"*. This harness runs the entire pipeline over the fictio
 | **time** | the seeded near-duplicate revision (draft + FINAL with corrected figures) becomes an explicit **supersedes chain** in state and on both pages, and pages carry provable `as_of` |
 | **dossiers** | the per-entity rollup exists, is judged `verified` like any page, and carries **current** truth (the superseding document's figure; the draft only as history) |
 | **acl** | the same question about a sales-scoped document is **answered for a sales client and refused for an engineering client**, whose search doesn't even list the page ([acl-config.json](acl-config.json)) |
+| **slack** | a Slack export flows through the **unchanged** pipeline to a verified page — the second-source contract proof (ADR 011) |
 | **qa** | golden questions against the produced brain, end to end ([qa_golden.json](qa_golden.json)): **numeric exactness** (the exact figure, correctly cited), **freshness** (the conflict between draft and FINAL resolves to the current value), **refusal** (unanswerable questions are declined — the anti-hallucination metric), **retrieval** (the right page found and cited). Every answer must carry the answer verifier's `verified` verdict |
 | **graph** | mention canonicalization yields exactly the expected entity nodes |
 
