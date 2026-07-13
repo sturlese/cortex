@@ -67,6 +67,26 @@ def test_search_entity_and_period_boosts(service):
     assert "period-match" in top["factors"]
 
 
+def test_search_ranks_by_bm25_relevance(corpus):
+    """FTS5 bm25() is negative for matches (more negative = better): the base score must
+    preserve that order — not clamp every match to one floor and fall through to the
+    alphabetical path tiebreak."""
+    write_page(corpus.brain_md_dir, "general/zzz-strong.md",
+               {"type": "note", "title": "strong", "verification": "verified"},
+               "widget widget widget widget widget widget report")
+    write_page(corpus.brain_md_dir, "general/aaa-weak.md",
+               {"type": "note", "title": "weak", "verification": "verified"},
+               "one widget among lots of other filler words here padding padding text")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    hits = retrieve.search(conn, "widget")
+    paths = [h["path"] for h in hits]
+    assert paths.index("general/zzz-strong.md") < paths.index("general/aaa-weak.md")
+    strong = next(h for h in hits if h["path"] == "general/zzz-strong.md")
+    weak = next(h for h in hits if h["path"] == "general/aaa-weak.md")
+    assert strong["score"] < weak["score"]        # ascending = better; no shared floor
+
+
 def test_search_survives_fts_syntax_in_query(service):
     assert isinstance(service.search('globex "revenue (ARR)" AND NOT*'), list)
 
