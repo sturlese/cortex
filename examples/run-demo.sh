@@ -18,43 +18,65 @@ mkdir -p "$OUT"
 # Bootstrap the venv once; a `.deps-ok` stamp (written only after a successful install) means an
 # interrupted install is retried instead of leaving a broken, deps-less venv behind.
 if [ ! -f "$VENV/.deps-ok" ]; then
-  echo "==> [0/5] Python env (one-time; ~a minute)"
+  echo "==> [0/6] Python env (one-time; ~a minute)"
   rm -rf "$VENV"
   python3 -m venv "$VENV"
   "$VENV/bin/pip" -q install -r "$ROOT/pipeline/clean/requirements.txt" -r "$ROOT/pipeline/graph/requirements.txt"
   touch "$VENV/.deps-ok"
 else
-  echo "==> [0/5] Python env (cached)"
+  echo "==> [0/6] Python env (cached)"
 fi
 
-echo "==> [1/5] corpus: enumerate -> classify -> curate -> trim -> inventory"
+echo "==> [1/6] corpus: enumerate -> classify -> curate -> trim -> inventory"
 export PYTHONPATH="$ROOT/pipeline/corpus/src"
 "$PY" -m corpus.cli build-manifest --corpus "$ROOT/examples/demo-corpus" --workdir "$OUT/work"
 "$PY" -m corpus.cli build-inventory --workdir "$OUT/work"
 
-echo "==> [2/5] stage the raw dir (mirror + inventory as _state.json)"
+echo "==> [2/6] stage the raw dir (mirror + inventory as _state.json)"
 mkdir -p "$OUT/raw"
 cp -R "$ROOT/examples/demo-corpus/." "$OUT/raw/"
 cp "$OUT/work/inventory.json" "$OUT/raw/_state.json"
 
-echo "==> [3/5] clean: raw -> brain-md (offline fake LLM; a SEEDED hallucination + a SEEDED misattribution to watch the loop work)"
+echo "==> [3/6] clean: raw -> brain-md (offline fake LLM; a SEEDED hallucination + a SEEDED misattribution to watch the loop work)"
 CLEAN_LLM=fake-flawed CLEAN_DRY_RUN=false \
 RAW_DIR="$OUT/raw" BRAIN_MD_DIR="$OUT/brain-md" CLEAN_STATE_DIR="$OUT/state" \
 BRAIN_FACTS_DIR="$OUT/brain-facts" \
 PYTHONPATH="$ROOT/pipeline/clean/src" "$PY" -m clean.main --once
 
-echo "==> [4/5] graph: brain-md -> brain-md-graphed (entity nodes + wikilinks)"
+echo "==> [4/6] graph: brain-md -> brain-md-graphed (entity nodes + wikilinks)"
 PYTHONPATH="$ROOT/pipeline/graph/src" "$PY" -m graph.cli \
   --in "$OUT/brain-md" --out "$OUT/brain-md-graphed" --min-mentions 2
 
-echo "==> [5/5] ops: the supervisor inspects the run and writes its report"
+echo "==> [5/6] ops: the supervisor inspects the run and writes its report"
 CLEAN_LLM=fake \
 RAW_DIR="$OUT/raw" BRAIN_MD_DIR="$OUT/brain-md" CLEAN_STATE_DIR="$OUT/state" \
 PYTHONPATH="$ROOT/pipeline/clean/src" "$PY" -m clean.ops > /dev/null
 
+echo "==> [6/6] answer: ask the brain (offline synthesizer + deterministic ANSWER verifier)"
+ANSWER_LLM=fake \
+BRAIN_MD_DIR="$OUT/brain-md" BRAIN_FACTS_DIR="$OUT/brain-facts" ANSWER_STATE_DIR="$OUT/answer-state" \
+PYTHONPATH="$ROOT/answer/src" "$PY" - <<'PYEOF'
+import asyncio
+from answer.service import AnswerService
+from answer.settings import Settings
+
+svc = AnswerService(Settings.from_env())
+for q in ("what is the arr-usd for initech in 2026-03?",
+          "what is the revenue impact for globex?",
+          "what is our office plant watering policy?"):
+    r = asyncio.run(svc.ask(q))
+    print(f"  Q: {q}")
+    if r["refused"]:
+        print(f"  A: (refused) {r['reason']}")
+    else:
+        print(f"  A: {r['answer']}")
+    print(f"     verdict={r['verification']['verdict']} citations={[c['path'] for c in r['citations']]}")
+PYEOF
+
 echo
 echo "Done. Look around:"
 echo "  supervisor report    examples/out/state/ops-report.md (health, findings, recommendations)"
+echo "  facts store          examples/out/brain-facts/facts.jsonl (typed, cell-verified numbers)"
 echo "  curation artifacts   examples/out/work/            (classification matrix, manifest, inventory)"
 echo "  brain pages          examples/out/brain-md/        (entities/ prospects/ units/ general/)"
 echo "  graphed layer        examples/out/brain-md-graphed/ (entity nodes + '## Related entities')"

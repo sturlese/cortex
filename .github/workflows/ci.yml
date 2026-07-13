@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [pipeline/fetch, pipeline/clean, pipeline/corpus, pipeline/graph]
+        package: [pipeline/fetch, pipeline/clean, pipeline/corpus, pipeline/graph, answer]
     defaults:
       run:
         working-directory: ${{ matrix.package }}
@@ -40,7 +40,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Ruff
-        run: pipx run ruff check pipeline evals
+        run: pipx run ruff check pipeline evals answer
 
   evals:
     runs-on: ubuntu-latest
@@ -68,3 +68,4 @@ jobs:
           cp gbrain/.env.example gbrain/.env
           docker compose -f pipeline/docker-compose.yml config >/dev/null
           docker compose -f gbrain/docker-compose.yml config >/dev/null
+          docker compose -f answer/docker-compose.yml config >/dev/null

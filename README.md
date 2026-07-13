@@ -54,6 +54,7 @@ then run `make eval` for the 15-metric golden scorecard. Swap in `CLEAN_LLM=open
 | [`clean/src/facts.py`](pipeline/clean/src/clean/facts.py) | the numeric layer: an agent maps each sheet to typed observations, a deterministic validator re-reads every claimed cell — hallucinated numbers cannot enter the store |
 | [`clean/src/ops.py`](pipeline/clean/src/clean/ops.py) + [`claims.py`](pipeline/clean/src/clean/claims.py) | the supervisor: telemetry → diagnosis → sampled structured claim checks (paragraph anchored to evidence, judged supported/unsupported/contradicted) → bounded actions → a report for a human |
 | [`clean/src/playbook.py`](pipeline/clean/src/clean/playbook.py) | agent memory that cannot go feral: one auditable page, capped, advisory, kill-switched |
+| [`answer/src/answer/`](answer/src/answer/) | the serving half: contract-enforcing retrieval, exact facts, and an answering agent judged by a deterministic **answer verifier** — "trust the pages" becomes "trust the answers" |
 | [`evals/`](evals/) | golden scorecard run on every push: curation, placement, and the trust layer catching a **seeded hallucination** — quality measured, not assumed |
 | [`docs/decisions/`](docs/decisions/) | four ADRs recording *why* — including what was deliberately NOT built |
 | [`docs/pipeline/brain-page-contract.md`](docs/pipeline/brain-page-contract.md) | the page frontmatter treated as an API, with trust signals MCP clients act on |
@@ -77,11 +78,19 @@ then run `make eval` for the 15-metric golden scorecard. Swap in `CLEAN_LLM=open
   `ops-report.md`. Human-on-the-loop by construction.
 - **graph** — derived entity graph from page mentions: node pages + wikilinks. No LLM.
 - **corpus** — reproducible offline curation: taxonomy rules engine, md5 dedup, allowlist, inventory.
-- **gbrain** *(deploy wrapper)* — the [gbrain](https://github.com/garrytan/gbrain) memory engine
-  (Supabase + pgvector) behind a Tailscale Funnel, with per-client OAuth scoping over MCP.
+- **answer** — the serving half with the pipeline's guarantees: an MCP server whose retrieval
+  enforces the page contract (superseded/unverified demoted, entity/period/freshness boosted,
+  every ranking explainable), whose numbers come exact from the facts store, and whose answering
+  agent is judged by a **deterministic answer verifier** before anything leaves the server —
+  every figure traced to this run's evidence, every citation quoted verbatim, refusal
+  first-class.
+- **gbrain** *(deploy wrapper, alternative)* — the [gbrain](https://github.com/garrytan/gbrain)
+  memory engine (Supabase + pgvector) behind a Tailscale Funnel, with per-client OAuth scoping
+  over MCP — semantic recall over the same corpus.
 
-Two independent Docker stacks, deliberately airgapped: the pipeline never sees the database; the
-brain server never sees Drive. The only shared surface is the `brain-md` volume of Markdown pages.
+Independent Docker stacks, deliberately airgapped: the pipeline never sees a database; the
+serving stacks never see Drive. The only shared surfaces are the read-only `brain-md` and
+`brain-facts` volumes.
 
 ## Quickstart (real corpus)
 
@@ -95,7 +104,11 @@ cp .env.example .env          # DRIVE_FOLDER, OPENAI_API_KEY, gog keyring passwo
 docker compose build && docker compose up -d    # clean is a no-op until CLEAN_DRY_RUN=false
 docker compose --profile ops run --rm ops        # supervisor: diagnose + report + learn
 
-# 2) brain server (optional — consume brain-md/ with anything you like)
+# 2) answer server (the guarantees: verified answers + exact facts over MCP)
+cd ../answer
+docker compose up -d          # reads brain-md + brain-facts; front with your ingress
+
+# 3) gbrain (optional alternative: vector search over the same corpus)
 cd ../gbrain
 cp .env.example .env          # Supabase URL, embedding + Tailscale keys
 make up

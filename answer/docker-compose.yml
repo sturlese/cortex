@@ -1,0 +1,34 @@
+# cortex answer server — the serving option with the pipeline's guarantees.
+# Reads the corpus + facts store (both read-only); writes only its own regenerable index.
+# NO published ports on purpose: front it with your own ingress (the gbrain stack shows the
+# Tailscale Funnel pattern). Environment lives in the compose file — no secrets required unless
+# you enable the real model (OPENAI_API_KEY) or the bearer gate (ANSWER_BEARER_TOKEN).
+
+name: cortex-answer
+
+services:
+  answer:
+    init: true
+    build: .
+    image: cortex-answer:local
+    restart: unless-stopped
+    command: ["--transport", "http", "--port", "3141"]
+    environment:
+      BRAIN_MD_DIR: /data/brain-md
+      BRAIN_FACTS_DIR: /data/brain-facts
+      ANSWER_STATE_DIR: /data/state
+      ANSWER_LLM: ${ANSWER_LLM:-openai}          # 'fake' = offline deterministic answering
+      ANSWER_MODEL: ${ANSWER_MODEL:-gpt-5.4}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANSWER_BEARER_TOKEN: ${ANSWER_BEARER_TOKEN:-}
+    volumes:
+      - brain-md:/data/brain-md:ro               # SHARED with the pipeline stack (single writer: clean)
+      - brain-facts:/data/brain-facts:ro         # the verified facts store
+      - answer-state:/data/state                 # the index (fully regenerable)
+
+volumes:
+  answer-state:
+  brain-md:
+    external: true      # `docker volume create brain-md`
+  brain-facts:
+    external: true      # `docker volume create brain-facts`

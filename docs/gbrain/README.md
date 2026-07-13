@@ -1,8 +1,12 @@
-# gbrain — the brain server
+# gbrain — the brain server (vector-search option)
 
 `gbrain/` is a **deploy wrapper** around [gbrain](https://github.com/garrytan/gbrain), an external
 MCP memory engine (Bun/TypeScript, Postgres + pgvector). It ingests the `brain-md` corpus, embeds
 it, and serves semantic search + retrieval to MCP clients with per-client OAuth scoping.
+
+> Serving options: gbrain brings embeddings and multi-user OAuth; the first-party
+> [`answer` server](../answer.md) brings the pipeline's guarantees (contract-aware ranking,
+> exact facts, deterministically verified answers). They read the same volume — run either or both.
 
 The wrapper pins gbrain to an immutable commit (`GBRAIN_REF` in `.env`) and runs:
 
