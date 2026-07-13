@@ -22,6 +22,7 @@ contextual_retrieval: title          # embedding-context tier: prepend title to 
 tier: 1                              # 1 primary, 2 second-hand, 3 AI-generated
 verification: verified               # trust layer: verified | partial | failed (deterministic, not LLM)
 unverified_numbers: ["9.9M"]         # only when figures couldn't be traced to the source
+unanchored_numbers: ["512000"]       # figures IN the source but tied to a period the source contradicts
 unverified_mentions: [Ghost Corp]    # advisory: mentions not literally found in the source
 detail_in_source: true               # spreadsheets only: exact figures live in the source
 extraction_method: vision            # the agent escalated to its ocr tool (+ ocr_model: <model>)
@@ -50,8 +51,9 @@ mentions:                            # unresolved entities — the graph stage l
 | `detail_in_source: true` + `source_format: spreadsheet` | page is a summary of a *live* sheet — open the source (via `source_file_id`) for exact/current figures |
 | `representation: digest` / `minimal` | summary/pointer; detail is in the source |
 | `extraction_quality: manual_review` | page carries a warning banner; extraction was lossy — offer to open the original |
-| `verification: failed` | one or more figures could not be traced to the source (banner on the page) — do NOT quote its numbers without opening the original |
-| `verification: partial` | isolated untraced figure(s), listed in `unverified_numbers` — quote those with caution |
+| `verification: failed` | the page's figures largely can't be trusted — invented, or tied to the wrong period (banner on the page). Do NOT quote its numbers without opening the original |
+| `verification: partial` | isolated problem figure(s): untraced ones in `unverified_numbers`, misattributed ones in `unanchored_numbers` — quote those with caution |
+| `unanchored_numbers` | each listed figure EXISTS in the source, but the page ties it to a date/month/quarter every source occurrence contradicts — verify the attribution before quoting |
 | `extraction_method: vision` | body came from OCR (`ocr_model` says which); trust accordingly |
 | `mentions` | unresolved names; the graphed layer links them as `[[wikilinks]]` |
 
@@ -63,5 +65,6 @@ mentions:                            # unresolved entities — the graph stage l
 - `digest`/`minimal` pages always end with a visible link to the original file.
 - Zero invention: figures are quoted exactly from the extracted text or omitted — and this is
   **enforced**, not just prompted: after generation, every number in the body is deterministically
-  traced back to the source text (`verification` frontmatter; see
-  [decisions/002](../decisions/002-deterministic-verification.md)).
+  traced back to the source text, and any figure the page ties to a period (date, month, quarter)
+  must be compatible with the period the source gives it (`verification` frontmatter; see
+  [decisions/002](../decisions/002-deterministic-verification.md) and its 2026-07 amendment).

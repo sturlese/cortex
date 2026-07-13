@@ -52,8 +52,10 @@ not grids.
 
 **Trust is checked, not assumed.** The LLM writes; pure code verifies: every figure in a generated
 body is deterministically traced back to the source text (generous matching over separators,
-suffixes and currency formats), and each page carries a machine-readable `verification` verdict.
-Self-reported quality is never the only signal ([ADR 002](decisions/002-deterministic-verification.md)).
+suffixes and currency formats), AND any figure the page ties to a period must be compatible with
+the period the source gives it — right number, wrong month is caught too. Each page carries a
+machine-readable `verification` verdict. Self-reported quality is never the only signal
+([ADR 002](decisions/002-deterministic-verification.md)).
 
 **Bounded agency inside the document, determinism outside.** The per-document worker is an agent
 with two tools — `read_more()` (pull extraction beyond the prompt window) and `ocr()` (re-read a
@@ -78,6 +80,7 @@ single writer (clean).
 | Failure | Contained by | Recovery |
 |---|---|---|
 | Model invents a figure | deterministic verifier → judge retry → `verification:` flag + banner | supervisor spot-audit; requeue after a playbook update |
+| Model misattributes a figure (right number, wrong period) | period anchoring → judge retry → `unanchored_numbers` flag | same loop; the flag names the exact figures |
 | Garbled extraction (scan, mojibake) | worker escalates to its `ocr()` tool in-run | no key / OCR fails → page flagged `manual_review` |
 | Provider rate limit (persistent 429) | circuit breaker aborts the pass; docs stay pending | relaunch — hash idempotency resumes exactly where it stopped |
 | Token overspend | `CLEAN_TOKEN_BUDGET` hard ceiling (same clean-abort semantics) | raise budget or relaunch next window |

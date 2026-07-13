@@ -35,14 +35,17 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
    A clean document costs exactly **1 request**; hard budgets (`RUN_LIMITS`: 6 requests, 4 tool
    calls per attempt) cap the worst case. `manual_review` now means "even with the tools, no
    usable content".
-4. **Verify** (`verify.py`): the trust layer. Every numeric token in the body is traced back to
-   what the agent could see — the full extraction plus the OCR transcription when it escalated —
-   with generous, deterministic matching (separators, magnitude suffixes, currency, percent).
-   If the verdict is `failed`, the **generator-judge loop** fires: one corrective retry whose
-   prompt carries the verifier's findings ("these figures are not in the source — fix or drop
-   them"); the retry wins only if it improves. Verdict, unverified figures and provenance land in
-   the frontmatter, the state and the pass stats. See
-   [ADR 002](../decisions/002-deterministic-verification.md) and
+4. **Verify** (`verify.py`): the trust layer, two deterministic checks. **Presence**: every
+   numeric token in the body is traced back to what the agent could see — the full extraction
+   plus the OCR transcription when it escalated — with generous matching (separators, magnitude
+   suffixes, currency, percent). **Period anchoring**: a figure the page ties to a date/month/
+   quarter must be compatible with the period the source's own line gives it — a real figure
+   attributed to the wrong month is flagged (`unanchored_numbers`), which presence alone cannot
+   see. If the verdict is `failed` — or any figure is unanchored — the **generator-judge loop**
+   fires: one corrective retry whose prompt carries the verifier's findings; the retry wins only
+   if it measurably improves. Verdict, problem figures, per-figure source spans and provenance
+   land in the frontmatter, the state and the pass stats. See
+   [ADR 002](../decisions/002-deterministic-verification.md) (incl. the 2026-07 amendment) and
    [ADR 003](../decisions/003-bounded-agency-worker.md).
 5. **Write** (`page.py`): frontmatter + body under `entities/<slug>/`, `prospects/<slug>/`,
    `units/<unit>/` or `general/`, named `slug(filename)-<sha1(id)[:6]>.md` (stable + unique).
@@ -61,7 +64,8 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
 - Rate limits: individual errors are recorded and retried next pass; a *persistent* 429 trips a
   circuit breaker that aborts the pass leaving remaining docs pending (relaunch to resume).
 - Pass stats surface the agency: `ocr_docs`, `verify_retries`, `verify_verified/partial/failed`,
-  plus `VERIFY FAILED` log lines for triage; each result carries an `agent_trace`
+  `verify_unanchored`, plus `VERIFY FAILED` / `VERIFY UNANCHORED` log lines for triage; each
+  result carries an `agent_trace`
   (`["read_more x1", "ocr", "verifier-retry"]`) — every autonomous decision is recorded in state.
 - Before each pass the processor loads the **playbook** — the supervisor-distilled, size-capped
   advisory memory ([ops.md](ops.md)); `CLEAN_TOKEN_BUDGET` gives the pass a hard spend ceiling
@@ -73,7 +77,7 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
 | Var | Default | Meaning |
 |---|---|---|
 | `OPENAI_API_KEY` | — | required; fail-fast if missing |
-| `CLEAN_LLM` | `openai` | `openai` · `fake` (offline) · `fake-flawed` (offline + one seeded hallucination, for demos/evals of the judge loop) |
+| `CLEAN_LLM` | `openai` | `openai` · `fake` (offline) · `fake-flawed` (offline + one seeded hallucination and one seeded period misattribution, for demos/evals of the judge loop) |
 | `CLEAN_MODEL` | `gpt-5.4` | bare = OpenAI Responses; or any provider-prefixed pydantic-ai string (`anthropic:claude-sonnet-4-5`, `google-gla:gemini-2.5-pro`, ...) |
 | `CLEAN_REASONING_EFFORT` | `medium` | `minimal`\|`low`\|`medium`\|`high` |
 | `CLEAN_DRY_RUN` | `true` | safe no-op until explicitly `false` |

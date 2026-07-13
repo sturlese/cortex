@@ -46,3 +46,24 @@ LLM-judge stage — not in the hot path.
 - **Embedding-similarity checks** — fuzzy, threshold-tuning burden, still no ground truth.
 - **Blocking failed pages** — a false flag would silently drop real knowledge; annotating keeps
   recall and pushes the trust decision to the consumer, who has the signal.
+
+## Amendment — period anchoring (2026-07-13)
+
+The original check verified **presence**: a figure matching *anywhere* in the source passed. That
+made the green badge weaker than readers assume — "ARR was 512000 in January" verified even when
+the source ties 512000 to March. A misattributed figure is as wrong as an invented one.
+
+`verify.py` now runs a second deterministic check: for each body figure whose own line asserts a
+period (ISO date, `YYYY-MM`, quarter, capitalized month name, bare year), every source occurrence
+of that value is inspected. The figure anchors if at least one occurrence's line carries **no
+period signal** (absence is never a contradiction — headers, filenames and prose layouts stay
+safe) or a **compatible** one (coarser never contradicts finer: `2026` vs `2026-03` is fine, `Q1
+2026` vs `2026-02` is fine). Only when every occurrence explicitly contradicts the page does the
+figure land in `unanchored_numbers` — same design as presence: flags you can trust, best-effort
+recall. The window is the occurrence's own line, deliberately: in tables, adjacent rows carry
+adjacent periods, and any wider window would anchor a wrong-row figure to its neighbor.
+
+The verdict now ranges over problems = unverified ∪ unanchored (same thresholds), unanchored
+figures also fire the generator-judge retry, and each verified figure records the source span
+that anchored it (state-only telemetry). The demo/eval backend seeds one misattribution
+alongside the invention; the golden scorecard requires both to be caught and corrected.
