@@ -8,9 +8,11 @@ import asyncio
 import datetime
 import os
 
+from clean import factstore
 from clean.agents import RUN_LIMITS, Processor
-from clean.converters import extract, method_for_ext
+from clean.converters import extract, method_for_ext, sheet_rows
 from clean.entity import resolve_entity
+from clean.facts import GridContext, extract_facts
 from clean.page import brain_path, build_page, write_page
 from clean.tools import DocContext
 from clean.verify import verify_page
@@ -51,7 +53,8 @@ def _merge_usage(a: dict, b: dict) -> dict:
     return {k: a.get(k, 0) + b.get(k, 0) for k in set(a) | set(b)}
 
 
-async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, catalog=None) -> dict:
+async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, catalog=None,
+                      facts_processor=None, facts_dir=None) -> dict:
     file_id = doc["fileId"]
     entry = doc["entry"]
     name = entry.get("name") or file_id
@@ -78,6 +81,9 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
     usage = _usage_dict(pr.usage)
 
     if out.skipped:
+        if facts_dir:
+            # a doc downgraded to noise must not leave stale numbers behind
+            factstore.delete_facts(facts_dir, file_id)
         return {"fileId": file_id, "skipped": True, "method": method, "reason": out.reason, "usage": usage}
 
     def _verify(o):
@@ -109,6 +115,21 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
     rel_dir, slug = brain_path(entity, name, file_id)   # stable + unique slug: name + id hash
     rel = write_page(brain_md_dir, rel_dir, slug, page)
 
+    facts_counts = None
+    if method == "sheet" and facts_processor and facts_dir:
+        # the facts layer: a second bounded agent maps the grid to typed observations; the
+        # deterministic validator (and only it) decides what enters the store. See facts.py.
+        grid = await asyncio.to_thread(sheet_rows, doc["path"])
+        gctx = GridContext(sheets=dict(grid), filename=name)
+        kept, fusage = await extract_facts(facts_processor, gctx)
+        usage = _merge_usage(usage, _usage_dict(fusage))
+        factstore.replace_facts(facts_dir, file_id, kept, page_path=rel,
+                                entity=entity.get("slug"), org_unit=entity.get("unit"),
+                                extracted_at=extracted_at)
+        facts_counts = {"kept": len(kept), "rejected": len(gctx.rejected)}
+        if gctx.rejected:
+            facts_counts["rejected_reasons"] = [list(r) for r in gctx.rejected[:8]]
+
     result = {
         "fileId": file_id,
         "skipped": False,
@@ -127,6 +148,8 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
         result["ocr"] = True
     if retried:
         result["retried"] = True
+    if facts_counts is not None:
+        result["facts"] = facts_counts
     if verification.numbers_unverified:
         result["unverified_numbers"] = verification.numbers_unverified
     if verification.numbers_unanchored:

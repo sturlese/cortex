@@ -13,6 +13,8 @@ import time
 
 from clean.agents import build_agent
 from clean.entity import build_catalog
+from clean.facts import build_facts_agent
+from clean.factstore import delete_facts, export_jsonl
 from clean.playbook import load_playbook
 from clean.settings import Settings
 from clean.state import classify_pending, load_inventory, load_state, save_state
@@ -35,7 +37,7 @@ def is_rate_limit(ex) -> bool:
     return getattr(ex, "status_code", None) == 429 or bool(re.search(r"\b429\b", str(ex)))
 
 
-def dedup_pending(pending, state, inventory, brain_md_dir=None):
+def dedup_pending(pending, state, inventory, brain_md_dir=None, facts_dir=None):
     """Exact content dedup: a pending doc whose sha256 already has a processed page (or an earlier
     pending doc in this pass) becomes `duplicate` -> no LLM call, no page, state points at the
     canonical file id. Deterministic: existing processed entries win; within a pass, lowest id."""
@@ -65,6 +67,8 @@ def dedup_pending(pending, state, inventory, brain_md_dir=None):
                     log(f"DELETED page {prev_path} ({doc['fileId']} now a duplicate of {canon})")
                 except FileNotFoundError:
                     pass
+            if facts_dir:
+                delete_facts(facts_dir, doc["fileId"])   # its numbers are served by the canonical
             state["files"][doc["fileId"]] = {
                 "name": e.get("name"), "localPath": e.get("localPath"), "rawHash": h,
                 "status": "duplicate", "duplicateOf": canon, "updatedAt": now,
@@ -82,18 +86,22 @@ async def run_once(cfg: Settings) -> dict:
         return {"total": 0, "pending": 0, "processed": 0, "errors": 0}
 
     state = load_state(cfg.state_dir)
+    facts_dir = cfg.facts_dir if cfg.facts else None
     pending = classify_pending(inventory, state, cfg.raw_dir)
-    pending, duplicates = dedup_pending(pending, state, inventory, cfg.brain_md_dir)
+    pending, duplicates = dedup_pending(pending, state, inventory, cfg.brain_md_dir, facts_dir)
     if cfg.max_docs > 0 and len(pending) > cfg.max_docs:
         log(f"limiting to {cfg.max_docs} docs (CLEAN_MAX_DOCS) out of {len(pending)} pending")
         pending = pending[: cfg.max_docs]
 
     if duplicates:
         save_state(cfg.state_dir, state)
+        if facts_dir:
+            export_jsonl(facts_dir)   # dedup may have deleted facts; keep the audit trail in sync
     if not pending:
         return {"total": len(inventory), "pending": 0, "processed": 0, "errors": 0, "duplicates": duplicates}
 
     processor = build_agent(playbook=load_playbook(cfg.state_dir))
+    facts_processor = build_facts_agent() if cfg.facts else None
     # entity catalog (high confidence, over the WHOLE inventory) for the second, path-based pass
     catalog = build_catalog([(e.get("drivePath", ""), e.get("orgUnit")) for e in inventory.values()])
     sem = asyncio.Semaphore(cfg.max_concurrent)
@@ -127,7 +135,7 @@ async def run_once(cfg: Settings) -> dict:
             if abort["rate_limit"] or abort["budget"]:
                 return  # pass aborted: leave the doc untouched -> still pending, retried on relaunch
             if doc["reason"] == "deleted":
-                # source gone from Drive -> remove its page too (deletions propagate end to end)
+                # source gone from Drive -> remove its page AND its facts (deletions propagate)
                 prev = state["files"].get(file_id, {})
                 rel = (prev.get("lastResult") or {}).get("path")
                 if rel:
@@ -136,12 +144,15 @@ async def run_once(cfg: Settings) -> dict:
                         log(f"DELETED page {rel} (source removed)")
                     except FileNotFoundError:
                         pass
+                if facts_dir and delete_facts(facts_dir, file_id):
+                    log(f"DELETED facts for {file_id} (source removed)")
                 state["files"][file_id] = {**prev, "status": "deleted", "updatedAt": now}
                 stats["processed"] += 1
                 maybe_report()
                 return
             try:
-                res = await process_one(doc, processor, cfg.raw_dir, cfg.brain_md_dir, catalog)
+                res = await process_one(doc, processor, cfg.raw_dir, cfg.brain_md_dir, catalog,
+                                        facts_processor=facts_processor, facts_dir=facts_dir)
                 e = doc["entry"]
                 # a rename/move changes the page's slug or entity folder: delete the previous page
                 # so the stale copy (with outdated content) doesn't linger in brain-md forever.
@@ -174,6 +185,13 @@ async def run_once(cfg: Settings) -> dict:
                     stats["ocr_docs"] = stats.get("ocr_docs", 0) + 1
                 if res.get("retried"):
                     stats["verify_retries"] = stats.get("verify_retries", 0) + 1
+                fx = res.get("facts")
+                if fx:
+                    stats["facts_kept"] = stats.get("facts_kept", 0) + fx.get("kept", 0)
+                    stats["facts_rejected"] = stats.get("facts_rejected", 0) + fx.get("rejected", 0)
+                    if fx.get("rejected"):
+                        log(f"FACTS REJECTED {fx['rejected']} observation(s) on {res.get('path')}: "
+                            f"{fx.get('rejected_reasons')}")
                 tk = res.get("usage") or {}
                 stats["in_tok"] += tk.get("in", 0)
                 stats["out_tok"] += tk.get("out", 0)
@@ -188,6 +206,8 @@ async def run_once(cfg: Settings) -> dict:
                 vinfo = f" · {verdict}" if verdict and verdict != "verified" else ""
                 if res.get("retried"):
                     vinfo += " · self-corrected"
+                if fx:
+                    vinfo += f" · facts {fx.get('kept', 0)}"
                 log(f"OK {res.get('path') or 'skipped'} ({res.get('method')}/{rep}){vinfo}{tinfo}")
             except Exception as ex:  # noqa: BLE001
                 if is_rate_limit(ex):
@@ -206,6 +226,10 @@ async def run_once(cfg: Settings) -> dict:
 
     await asyncio.gather(*(worker(d) for d in pending))
     save_state(cfg.state_dir, state)   # final save is unconditional — nothing may be lost at rest
+    if facts_dir:
+        exported = export_jsonl(facts_dir)   # once per pass: the diffable audit trail
+        if exported or stats.get("facts_kept") is not None:
+            log(f"facts store: {exported} observation(s) exported to facts.jsonl")
     return {"total": len(inventory), "pending": len(pending), "duplicates": duplicates,
             "aborted": abort["rate_limit"], "aborted_budget": abort["budget"], **stats}
 
