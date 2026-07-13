@@ -42,3 +42,58 @@ def test_compose_instructions_advisory_framing():
     assert "advisory" in composed
     assert "NEVER override" in composed
     assert "hint one" in composed
+
+
+# ── the human approval gate ──────────────────────────────────────────────────
+def test_pending_proposal_is_invisible_until_approved(tmp_path):
+    from clean.playbook import approve_pending, save_pending
+    save_pending(str(tmp_path), "Treat KPI exports as digests.")
+    assert load_playbook(str(tmp_path)) == ""                    # not live yet
+    body = approve_pending(str(tmp_path))
+    assert body == "Treat KPI exports as digests."
+    loaded = load_playbook(str(tmp_path))
+    assert "Treat KPI exports as digests." in loaded
+    assert "approved by the operator" in loaded                  # approval provenance
+    import os
+
+    from clean.playbook import pending_path
+    assert not os.path.exists(pending_path(str(tmp_path)))       # proposal consumed
+
+
+def test_reject_discards_without_touching_live(tmp_path):
+    import os
+
+    import pytest
+
+    from clean.playbook import pending_path, reject_pending, save_pending
+    save_playbook(str(tmp_path), "existing guidance")
+    save_pending(str(tmp_path), "malicious or wrong guidance")
+    reject_pending(str(tmp_path))
+    assert not os.path.exists(pending_path(str(tmp_path)))
+    assert "existing guidance" in load_playbook(str(tmp_path))   # live playbook untouched
+    with pytest.raises(FileNotFoundError):
+        reject_pending(str(tmp_path))                            # nothing left to reject
+
+
+def test_approve_recaps_oversized_proposal(tmp_path):
+    from clean.playbook import approve_pending, save_pending
+    save_pending(str(tmp_path), "Y" * (PLAYBOOK_MAX_CHARS * 2))
+    approve_pending(str(tmp_path))
+    assert len(load_playbook(str(tmp_path))) <= PLAYBOOK_MAX_CHARS
+
+
+def test_cli_show_approve_reject(tmp_path, monkeypatch, capsys):
+    from clean.playbook import cli, save_pending
+    monkeypatch.setenv("CLEAN_STATE_DIR", str(tmp_path))
+    assert cli(["approve"]) == 1                                 # nothing pending -> rc 1
+    assert "nothing pending" in capsys.readouterr().out
+    save_pending(str(tmp_path), "hint")
+    assert cli(["show"]) == 0
+    out = capsys.readouterr().out
+    assert "PENDING proposal" in out and "hint" in out
+    assert cli(["approve"]) == 0
+    assert "approved" in capsys.readouterr().out
+    assert "hint" in load_playbook(str(tmp_path))
+    save_pending(str(tmp_path), "bad hint")
+    assert cli(["reject"]) == 0
+    assert "hint" in load_playbook(str(tmp_path)) and "bad hint" not in load_playbook(str(tmp_path))

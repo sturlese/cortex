@@ -74,6 +74,9 @@ docker compose up -d clean
 
 - `volume rm` says "in use" → a stopped container still holds it; `docker compose rm -sf clean` first.
 - Persistent 429 (provider rate limit) → the pass aborts cleanly; pending docs resume on relaunch.
+- Supervisor proposed a playbook → review and decide (nothing is live until you do):
+  `docker compose --profile ops run --rm --entrypoint python ops -m clean.playbook show`
+  then `... -m clean.playbook approve` (or `reject`).
 - `manual_review` pages = the agent could not obtain usable content even after escalating to its
   OCR tool (or the tool was disabled — no `GEMINI_API_KEY`). They carry a warning banner; fix the
   source or enable OCR and reprocess.

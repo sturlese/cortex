@@ -38,6 +38,9 @@ def test_settings_from_env(monkeypatch):
     monkeypatch.setenv("CLEAN_DRY_RUN", "false")
     cfg = Settings.from_env()
     assert cfg.raw_dir == "/r" and cfg.token_budget == 5000 and cfg.dry_run is False
+    assert cfg.playbook_autoapprove is False              # human gate is the default
+    monkeypatch.setenv("CLEAN_PLAYBOOK_AUTOAPPROVE", "true")
+    assert Settings.from_env().playbook_autoapprove is True
     with pytest.raises(dataclasses.FrozenInstanceError):
         cfg.raw_dir = "/mutated"          # configuration is data, not shared mutable state
 
@@ -105,6 +108,35 @@ def test_run_once_respects_max_docs(env, monkeypatch):
     stats = asyncio.run(run_once(dataclasses.replace(env.cfg, max_docs=1)))
     assert stats["processed"] == 1
     assert len(seen) == 1
+
+
+def test_run_once_throttles_state_saves(tmp_path, monkeypatch):
+    """State is saved on a time budget, not per document — per-doc saves are O(n²) bytes over a
+    pass. The final save is unconditional, so nothing is lost at rest."""
+    import json as _json
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    inv = {}
+    for i in range(20):
+        (raw / f"f{i}.md").write_text(f"doc {i}")
+        inv[f"F{i}"] = {"name": f"f{i}.md", "localPath": f"f{i}.md", "drivePath": f"/X/f{i}.md"}
+    (raw / "_state.json").write_text(_json.dumps({"files": inv}))
+    monkeypatch.setattr(clean_main, "build_agent", lambda **kw: object())
+    saves = []
+    real_save = clean_main.save_state
+    monkeypatch.setattr(clean_main, "save_state",
+                        lambda d, s: (saves.append(1), real_save(d, s))[-1])
+    async def fake(doc, *a, **kw):
+        return {"fileId": doc["fileId"], "skipped": False, "method": "text",
+                "path": f"general/{doc['fileId']}.md", "usage": {}}
+    monkeypatch.setattr(clean_main, "process_one", fake)
+    cfg = Settings(raw_dir=str(raw), brain_md_dir=str(tmp_path / "brain"),
+                   state_dir=str(tmp_path / "state"), dry_run=False)
+    stats = asyncio.run(run_once(cfg))
+    assert stats["processed"] == 20
+    assert len(saves) < 10                                   # vs 21 with per-doc saves
+    state = json.loads((tmp_path / "state" / "clean-state.json").read_text())
+    assert len(state["files"]) == 20                         # final save captured everything
 
 
 def test_run_once_no_inventory(tmp_path):

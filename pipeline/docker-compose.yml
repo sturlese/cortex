@@ -83,6 +83,9 @@ services:
       CLEAN_STATE_DIR: /data/state
       CLEAN_MODEL: ${CLEAN_MODEL:-gpt-5.4}
       CLEAN_REASONING_EFFORT: ${CLEAN_REASONING_EFFORT:-medium}
+      # playbook writes are PROPOSALS by default; approve with:
+      #   docker compose --profile ops run --rm --entrypoint python ops -m clean.playbook approve
+      CLEAN_PLAYBOOK_AUTOAPPROVE: ${CLEAN_PLAYBOOK_AUTOAPPROVE:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       CLEAN_TRACE: ${CLEAN_TRACE:-}
     volumes:
