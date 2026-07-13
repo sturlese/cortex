@@ -3,29 +3,31 @@
 [![CI](https://github.com/sturlese/cortex/actions/workflows/ci.yml/badge.svg)](https://github.com/sturlese/cortex/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**A blueprint for building a *company brain* out of a shared Google Drive — agentic where judgment
-pays, deterministic where trust matters.**
+**A blueprint for building a *company brain* out of a shared Google Drive (and your Slack) —
+agentic where judgment pays, deterministic where trust matters.**
 
-cortex turns a messy Drive folder into a clean, entity-aware, **verified** Markdown knowledge base
-and serves it to any MCP client (Claude, ChatGPT, agents). It is also an opinionated reference for
-how to ship agentic systems in production: bounded autonomy, deterministic verification, auditable
-memory, and a human on the loop.
+cortex turns messy company sources into a clean, entity-aware, **verified** knowledge base —
+Markdown pages, a cell-verified **facts store**, provable time, per-entity **dossiers** — and
+serves **verified, cited answers** to any MCP client (Claude, ChatGPT, agents), refusing when it
+doesn't know. It is also an opinionated reference for how to ship agentic systems in production:
+bounded autonomy, deterministic verification, auditable memory, and a human on the loop.
 
 <p align="center">
-  <img src="docs/assets/architecture.svg" alt="cortex system architecture: fetch → clean (agentic workers) → brain-md → gbrain MCP, with the ops supervisor loop" width="100%">
+  <img src="docs/assets/architecture.svg" alt="cortex system architecture: Drive + Slack export → fetch/slackexport → clean (agentic workers: facts, versions, dossiers) → brain-md + brain-facts + brain-dossiers → graph, served by the answer server (MCP, verified answers) or gbrain (MCP, pgvector), with the ops supervisor loop" width="100%">
 </p>
 
 ## The agentic control loop
 
-Every document gets a worker agent; a supervisor agent watches the fleet. **Both are judged and
-bounded by pure code** — the parts of the system that must never hallucinate, don't.
+Every document gets a worker agent; facts, versions, dossiers and answers get their own bounded
+agents; a supervisor agent watches the fleet. **All of them are judged by pure code** — the
+parts of the system that must never hallucinate, don't.
 
 <p align="center">
-  <img src="docs/assets/control-loop.svg" alt="the control loop: extractor → worker agent (tools, budgets) → deterministic verifier → page; supervisor agent closes the loop with playbook memory and a human report" width="100%">
+  <img src="docs/assets/control-loop.svg" alt="the control loop: extractor → worker agent (tools, budgets) → deterministic verifier → page; supervisor agent closes the loop with a human-gated playbook and a report — and the same agent-proposes/code-verifies pattern repeats for facts, prose facts, dossiers and answers" width="100%">
 </p>
 
-The design in one sentence: **the LLM writes, code verifies; workers act, a supervisor learns;
-every autonomous decision is budgeted, traced and reversible.**
+The design in one sentence: **the LLM writes, code verifies — at every layer; workers act, a
+supervisor learns; every autonomous decision is budgeted, traced and reversible.**
 
 ## Try it in 2 minutes (no API keys)
 
@@ -43,8 +45,9 @@ the stats. The KPI sheet's numbers also land as cell-verified **facts**
 rejects. A seeded near-duplicate ("Quarterly Report … FINAL") becomes an explicit
 `supersedes` chain, every page carries a **provable `as_of`**, and step 6 asks the brain three
 questions — an exact figure with cell provenance, a conflict resolved to current truth, and an
-honest refusal. Inspect `examples/out/`, then run `make eval` for the 20-metric golden
-scorecard (including end-to-end **golden Q&A**: exactness, freshness, refusal, retrieval).
+honest refusal. Inspect `examples/out/`, then run `make eval` for the 22-metric golden
+scorecard (including end-to-end **golden Q&A**: exactness, freshness, refusal, retrieval —
+plus ACL enforcement and the Slack-connector proof).
 Swap in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
 
 ## If you only have 5 minutes
@@ -58,7 +61,7 @@ Swap in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
 | [`clean/src/playbook.py`](pipeline/clean/src/clean/playbook.py) | agent memory that cannot go feral: one auditable page, capped, advisory, kill-switched |
 | [`answer/src/answer/`](answer/src/answer/) | the serving half: contract-enforcing retrieval, exact facts, and an answering agent judged by a deterministic **answer verifier** — "trust the pages" becomes "trust the answers" |
 | [`evals/`](evals/) | golden scorecard run on every push: curation, placement, and the trust layer catching a **seeded hallucination** — quality measured, not assumed |
-| [`docs/decisions/`](docs/decisions/) | four ADRs recording *why* — including what was deliberately NOT built |
+| [`docs/decisions/`](docs/decisions/) | eleven ADRs recording *why* — including what was deliberately NOT built |
 | [`docs/pipeline/brain-page-contract.md`](docs/pipeline/brain-page-contract.md) | the page frontmatter treated as an API, with trust signals MCP clients act on |
 
 ## What's in the box
@@ -97,14 +100,15 @@ Swap in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
   over MCP — semantic recall over the same corpus.
 
 Independent Docker stacks, deliberately airgapped: the pipeline never sees a database; the
-serving stacks never see Drive. The only shared surfaces are the read-only `brain-md` and
-`brain-facts` volumes.
+serving stacks never see Drive. The only shared surfaces are the read-only `brain-md`,
+`brain-facts` and `brain-dossiers` volumes.
 
 ## Quickstart (real corpus)
 
 ```bash
 # 0) one-time shared volumes
-docker volume create brain-md && docker volume create brain-md-graphed && docker volume create brain-facts
+docker volume create brain-md && docker volume create brain-md-graphed && \
+docker volume create brain-facts && docker volume create brain-dossiers
 
 # 1) ingestion pipeline
 cd pipeline
@@ -140,11 +144,12 @@ Details, folder conventions and the page contract: **[docs/](docs/README.md)**.
 
 ## Testing & observability
 
-~350 tests across five packages (75% coverage gate in CI), including the real agents exercised
+~390 tests across seven packages (75% coverage gate in CI), including the real agents exercised
 offline against their real tools, plus an [eval harness](evals/) that scores the whole system
 against a golden set on every push — curation accuracy, placement, seeded-defect catch rates
-(hallucination, misattribution, bad facts), the supersedes chain, graph canonicalization, and
-**end-to-end golden Q&A** (numeric exactness, freshness, refusal, retrieval).
+(hallucination, misattribution, bad facts), the supersedes chain, dossiers, ACL enforcement,
+graph canonicalization, and **end-to-end golden Q&A** (numeric exactness, freshness, refusal,
+retrieval).
 `CLEAN_TRACE=logfire` exports every agent run — prompts, tool calls, retries — as OpenTelemetry
 spans (optional dependency).
 
