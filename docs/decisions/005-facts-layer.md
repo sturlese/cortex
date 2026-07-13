@@ -49,6 +49,15 @@ ownership of a number.
 - The demo/eval backend seeds one observation whose value does not match its cell; the golden
   scorecard requires the validator to reject it and the honest observations to land intact.
 
+## Extension — prose facts (same day)
+
+The same doctrine covers prose documents, with the quote as the anchor: the agent must copy a
+verbatim snippet per figure (label + value inside it), and the validator requires the quote to
+be literally present in the source (reflow-tolerant), the value/label inside the quote, and the
+period readable from quote or filename. `source_ref = fileId!text!<offset>`. Sheets stay the
+grid path; prose is `CLEAN_FACTS_PROSE` (default on). The fake backend seeds one prose
+observation with an invented quote; the scorecard requires the validator to drop it.
+
 ## Alternatives rejected
 
 - **Deterministic header heuristics only** — free, but wrong exactly where it matters (merged

@@ -13,7 +13,7 @@ import time
 
 from clean.agents import build_agent
 from clean.entity import build_catalog
-from clean.facts import build_facts_agent
+from clean.facts import build_facts_agent, build_prose_facts_agent
 from clean.factstore import delete_facts, export_jsonl
 from clean.playbook import load_playbook
 from clean.settings import Settings
@@ -102,6 +102,7 @@ async def run_once(cfg: Settings) -> dict:
 
     processor = build_agent(playbook=load_playbook(cfg.state_dir))
     facts_processor = build_facts_agent() if cfg.facts else None
+    prose_facts_processor = build_prose_facts_agent() if (cfg.facts and cfg.facts_prose) else None
     # entity catalog (high confidence, over the WHOLE inventory) for the second, path-based pass
     catalog = build_catalog([(e.get("drivePath", ""), e.get("orgUnit")) for e in inventory.values()])
     sem = asyncio.Semaphore(cfg.max_concurrent)
@@ -152,7 +153,8 @@ async def run_once(cfg: Settings) -> dict:
                 return
             try:
                 res = await process_one(doc, processor, cfg.raw_dir, cfg.brain_md_dir, catalog,
-                                        facts_processor=facts_processor, facts_dir=facts_dir)
+                                        facts_processor=facts_processor, facts_dir=facts_dir,
+                                        prose_facts_processor=prose_facts_processor)
                 e = doc["entry"]
                 # a rename/move changes the page's slug or entity folder: delete the previous page
                 # so the stale copy (with outdated content) doesn't linger in brain-md forever.

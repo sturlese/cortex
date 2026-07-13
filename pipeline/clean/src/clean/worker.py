@@ -12,7 +12,13 @@ from clean import factstore
 from clean.agents import RUN_LIMITS, Processor
 from clean.converters import extract, method_for_ext, sheet_rows
 from clean.entity import resolve_entity
-from clean.facts import GridContext, extract_facts
+from clean.facts import (
+    GridContext,
+    extract_facts,
+    extract_prose_facts,
+    prose_rows_for_store,
+    sheet_rows_for_store,
+)
 from clean.page import brain_path, build_page, write_page
 from clean.tools import DocContext
 from clean.verify import verify_page
@@ -54,7 +60,7 @@ def _merge_usage(a: dict, b: dict) -> dict:
 
 
 async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, catalog=None,
-                      facts_processor=None, facts_dir=None) -> dict:
+                      facts_processor=None, facts_dir=None, prose_facts_processor=None) -> dict:
     file_id = doc["fileId"]
     entry = doc["entry"]
     name = entry.get("name") or file_id
@@ -116,6 +122,7 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
     rel = write_page(brain_md_dir, rel_dir, slug, page)
 
     facts_counts = None
+    fact_rows, rejected = None, []
     if method == "sheet" and facts_processor and facts_dir:
         # the facts layer: a second bounded agent maps the grid to typed observations; the
         # deterministic validator (and only it) decides what enters the store. See facts.py.
@@ -123,12 +130,22 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
         gctx = GridContext(sheets=dict(grid), filename=name)
         kept, fusage = await extract_facts(facts_processor, gctx)
         usage = _merge_usage(usage, _usage_dict(fusage))
-        factstore.replace_facts(facts_dir, file_id, kept, page_path=rel,
+        fact_rows, rejected = sheet_rows_for_store(file_id, kept), gctx.rejected
+    elif (method != "sheet" and out.representation in ("full", "digest")
+          and prose_facts_processor and facts_dir):
+        # prose documents: same doctrine, quote-anchored — the agent must copy a verbatim
+        # snippet per figure, and only quotes literally present in the source survive.
+        source = text + (f"\n{ctx.ocr_text}" if ctx.ocr_text else "")
+        kept_pairs, fusage = await extract_prose_facts(prose_facts_processor, name, source, rejected)
+        usage = _merge_usage(usage, _usage_dict(fusage))
+        fact_rows = prose_rows_for_store(file_id, kept_pairs)
+    if fact_rows is not None:
+        factstore.replace_facts(facts_dir, file_id, fact_rows, page_path=rel,
                                 entity=entity.get("slug"), org_unit=entity.get("unit"),
                                 extracted_at=extracted_at)
-        facts_counts = {"kept": len(kept), "rejected": len(gctx.rejected)}
-        if gctx.rejected:
-            facts_counts["rejected_reasons"] = [list(r) for r in gctx.rejected[:8]]
+        facts_counts = {"kept": len(fact_rows), "rejected": len(rejected)}
+        if rejected:
+            facts_counts["rejected_reasons"] = [list(r) for r in rejected[:8]]
 
     result = {
         "fileId": file_id,

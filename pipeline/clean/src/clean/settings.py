@@ -20,6 +20,7 @@ class Settings:
     token_budget: int = 0      # 0 = uncapped; else hard per-pass ceiling (in+out tokens)
     playbook_autoapprove: bool = False   # true = supervisor playbook writes go live WITHOUT a human
     facts: bool = True                   # extract typed numeric facts from sheets (facts.py)
+    facts_prose: bool = True             # ...and from prose documents (quote-anchored)
     facts_dir: str = "/data/brain-facts"  # facts store (facts.db + facts.jsonl); single writer: clean
 
     @classmethod
@@ -35,5 +36,6 @@ class Settings:
             token_budget=int(os.environ.get("CLEAN_TOKEN_BUDGET", cls.token_budget)),
             playbook_autoapprove=os.environ.get("CLEAN_PLAYBOOK_AUTOAPPROVE", "false").lower() == "true",
             facts=os.environ.get("CLEAN_FACTS", "on").lower() != "off",
+            facts_prose=os.environ.get("CLEAN_FACTS_PROSE", "on").lower() != "off",
             facts_dir=os.environ.get("BRAIN_FACTS_DIR", cls.facts_dir),
         )

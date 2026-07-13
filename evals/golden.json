@@ -48,11 +48,12 @@
   "seeded_hallucination_doc": "Quarterly Report Q1 2026.md",
   "seeded_misattribution_doc": "KPI metrics 2026.csv",
   "facts": {
-    "total": 9,
+    "total": 10,
     "spot_checks": [
       { "metric": "arr-usd", "entity": "initech", "period": "2026-03", "value_raw": "512000" },
       { "metric": "active-users", "entity": "initech", "period": "2026-01", "value_raw": "1250" },
-      { "metric": "nps", "entity": "initech", "period": "2026-02", "value_raw": "44" }
+      { "metric": "nps", "entity": "initech", "period": "2026-02", "value_raw": "44" },
+      { "metric": "revenue-impact", "entity": "globex", "period": null, "value_raw": "1.2M" }
     ]
   },
   "graph": { "entities_total": 1, "node": "entities/organization/globex.md" }
