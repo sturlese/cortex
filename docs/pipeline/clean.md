@@ -107,6 +107,7 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
 | `CLEAN_VERSIONS` | `on` | `off` disables near-duplicate version detection (the supersedes chain) |
 | `CLEAN_DOSSIERS` | `on` | `off` disables per-entity dossier regeneration |
 | `BRAIN_DOSSIERS_DIR` | `/data/brain-dossiers` | dossier layer location |
+| `CLEAN_ACL` | — | audience-mapping JSON (`acl.py`): path/unit/kind → audiences; empty = open corpus |
 | `BRAIN_FACTS_DIR` | `/data/brain-facts` | facts store location (facts.db + facts.jsonl) |
 | `CLEAN_TRACE` | — | `logfire` = OpenTelemetry tracing of every agent run (optional dep) |
 | `GEMINI_API_KEY` | — | enables the agent's `ocr()` tool; without it the tool degrades gracefully |

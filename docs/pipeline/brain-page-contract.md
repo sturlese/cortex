@@ -23,6 +23,7 @@ extraction_quality: usable           # usable | manual_review
 source_format: pdf                   # pdf | spreadsheet | document | office | text | other
 contextual_retrieval: title          # embedding-context tier: prepend title to each chunk
 tier: 1                              # 1 primary, 2 second-hand, 3 AI-generated
+acl: [sales, leadership]             # audience labels (CLEAN_ACL config); absent = open to all
 verification: verified               # trust layer: verified | partial | failed (deterministic, not LLM)
 unverified_numbers: ["9.9M"]         # only when figures couldn't be traced to the source
 unanchored_numbers: ["512000"]       # figures IN the source but tied to a period the source contradicts
@@ -62,6 +63,7 @@ mentions:                            # unresolved entities — the graph stage l
 | `as_of` | when the CONTENT is valid (`YYYY[-MM]` or `YYYY-QN`), only as precise as the source proves — rank current truth with it |
 | `superseded_by` | a newer version of this document exists — demote for "current" questions; keep for history/"as of" questions |
 | `supersedes` | this page is the current version in a chain |
+| `acl` | audience labels — a serving layer must show this page only to clients holding one of them (the answer server enforces this; absent = open) |
 
 ## Body rules (enforced by prompt + post-processing)
 

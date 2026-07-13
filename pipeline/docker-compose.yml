@@ -52,6 +52,7 @@ services:
       CLEAN_FACTS_PROSE: ${CLEAN_FACTS_PROSE:-on}   # off = facts from sheets only
       CLEAN_VERSIONS: ${CLEAN_VERSIONS:-on}         # off = skip the supersedes-chain phase
       CLEAN_DOSSIERS: ${CLEAN_DOSSIERS:-on}         # off = skip per-entity dossier regeneration
+      CLEAN_ACL: ${CLEAN_ACL:-}                     # audience-mapping JSON path (empty = open corpus)
       BRAIN_FACTS_DIR: /data/brain-facts
       BRAIN_DOSSIERS_DIR: /data/brain-dossiers
       CLEAN_MODEL: ${CLEAN_MODEL:-gpt-5.4}

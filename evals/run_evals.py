@@ -69,7 +69,8 @@ def eval_clean_and_trust(work: Path, raw: Path, brain: Path, state_dir: Path, fa
     from clean.main import run_once
     from clean.settings import Settings
     cfg = Settings(raw_dir=str(raw), brain_md_dir=str(brain), state_dir=str(state_dir),
-                   facts_dir=str(facts_dir), dossiers_dir=str(OUT / "dossiers"), dry_run=False)
+                   facts_dir=str(facts_dir), dossiers_dir=str(OUT / "dossiers"),
+                   acl_path=str(ROOT / "evals" / "acl-config.json"), dry_run=False)
     stats = asyncio.run(run_once(cfg))
     metric("clean: pass completes", f"{stats.get('processed', 0)} processed, {stats.get('errors', 0)} errors",
            stats.get("errors", 0) == 0)
@@ -194,6 +195,27 @@ def eval_graph(brain: Path, graphed: Path) -> None:
            stats["entities"] == GOLDEN["graph"]["entities_total"] and node_ok)
 
 
+def eval_acl(brain: Path, facts_dir: Path, answer_state: Path) -> None:
+    """Access control, measured at the answer: the same question about a sales-scoped document
+    must be answered for a sales client and REFUSED for an engineering client — and the
+    restricted page must not even appear in the eng client's search results."""
+    import dataclasses
+
+    from answer.service import AnswerService
+    from answer.settings import Settings as AnswerSettings
+    base = AnswerSettings(brain_md_dir=str(brain), facts_dir=str(facts_dir),
+                          state_dir=str(answer_state), llm="fake")
+    question = "what is the arr-usd for initech in 2026-03?"
+    sales = asyncio.run(AnswerService(dataclasses.replace(base, audiences=("sales",))).ask(question))
+    eng_svc = AnswerService(dataclasses.replace(base, audiences=("eng",)))
+    eng = asyncio.run(eng_svc.ask(question))
+    hidden = not any("initech" in h["path"] for h in eng_svc.search("initech kpi metrics"))
+    ok = (not sales["refused"] and "512000" in sales["answer"]
+          and eng["refused"] and hidden)
+    metric("acl: sales sees the figure, eng gets a refusal (and no hit)",
+           "enforced" if ok else "leak", ok)
+
+
 def eval_answers(brain: Path, facts_dir: Path, answer_state: Path) -> None:
     """The promise, measured end to end: questions against the produced brain, answered by the
     answer service (offline synthesizer) and judged against golden expectations — exact figures,
@@ -235,6 +257,7 @@ def main() -> int:
     eval_ops_claims(state_dir, raw, brain)
     eval_graph(brain, graphed)
     eval_answers(brain, facts_dir, OUT / "answer-state")
+    eval_acl(brain, facts_dir, OUT / "answer-state-acl")
 
     width = max(len(n) for n, _, _ in RESULTS)
     lines = ["# Eval scorecard", "", "| Metric | Result | Pass |", "|---|---|---|"]

@@ -25,6 +25,7 @@ class Settings:
     dossiers: bool = True                # regenerate per-entity dossiers when members change
     facts_dir: str = "/data/brain-facts"  # facts store (facts.db + facts.jsonl); single writer: clean
     dossiers_dir: str = "/data/brain-dossiers"  # dossier layer; single writer: clean
+    acl_path: str = ""                   # CLEAN_ACL: audience-mapping JSON (empty = open corpus)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -43,5 +44,6 @@ class Settings:
             versions=os.environ.get("CLEAN_VERSIONS", "on").lower() != "off",
             dossiers=os.environ.get("CLEAN_DOSSIERS", "on").lower() != "off",
             dossiers_dir=os.environ.get("BRAIN_DOSSIERS_DIR", cls.dossiers_dir),
+            acl_path=os.environ.get("CLEAN_ACL", ""),
             facts_dir=os.environ.get("BRAIN_FACTS_DIR", cls.facts_dir),
         )

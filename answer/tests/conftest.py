@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS observations (
   file_id TEXT NOT NULL, page_path TEXT, entity TEXT, org_unit TEXT,
   metric TEXT NOT NULL, metric_raw TEXT NOT NULL, value_raw TEXT NOT NULL, value_num REAL,
   unit TEXT, period TEXT, dimension TEXT, source_ref TEXT NOT NULL,
-  extracted_at TEXT NOT NULL, verified INTEGER NOT NULL DEFAULT 1
+  extracted_at TEXT NOT NULL, verified INTEGER NOT NULL DEFAULT 1, acl TEXT
 );
 """
 
@@ -35,14 +35,14 @@ def add_fact(facts_dir: str, **kw):
     row = {"file_id": "F", "page_path": None, "entity": None, "org_unit": None,
            "metric": "m", "metric_raw": "m", "value_raw": "0", "value_num": 0.0,
            "unit": None, "period": None, "dimension": None, "source_ref": "F!S!R1C1",
-           "extracted_at": "t", "verified": 1}
+           "extracted_at": "t", "verified": 1, "acl": None}
     row.update(kw)
     with conn:
         conn.execute(
             "INSERT INTO observations (file_id, page_path, entity, org_unit, metric, metric_raw,"
-            " value_raw, value_num, unit, period, dimension, source_ref, extracted_at, verified)"
+            " value_raw, value_num, unit, period, dimension, source_ref, extracted_at, verified, acl)"
             " VALUES (:file_id, :page_path, :entity, :org_unit, :metric, :metric_raw, :value_raw,"
-            " :value_num, :unit, :period, :dimension, :source_ref, :extracted_at, :verified)", row)
+            " :value_num, :unit, :period, :dimension, :source_ref, :extracted_at, :verified, :acl)", row)
     conn.close()
 
 

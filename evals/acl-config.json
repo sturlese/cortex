@@ -1,0 +1,7 @@
+{
+  "_comment": "Audience mapping for the eval corpus (CLEAN_ACL contract, clean/acl.py): client documents are sales-only, everything else is open. The eval asserts a sales-scoped answer service answers the KPI question while an eng-scoped one gets a refusal.",
+  "default": ["all"],
+  "rules": [
+    { "unit": "Clients", "audiences": ["sales"] }
+  ]
+}

@@ -67,7 +67,8 @@ def members_of(state: dict, slug: str) -> list[dict]:
         r = f.get("lastResult") or {}
         if f.get("status") == "processed" and not r.get("skipped") and r.get("entity") == slug:
             out.append({"fileId": fid, "path": r.get("path"), "title": r.get("title") or f.get("name"),
-                        "as_of": r.get("as_of"), "superseded_by": r.get("superseded_by")})
+                        "as_of": r.get("as_of"), "superseded_by": r.get("superseded_by"),
+                        "acl": r.get("acl")})
     return out
 
 
@@ -167,10 +168,15 @@ class FakeDossierWriter:
 
 
 def _render(slug: str, members: list[dict], body: str, verification) -> str:
+    from clean.acl import dossier_acl
     now = datetime.datetime.now(datetime.UTC).isoformat()
     fm = ["---", "type: dossier", f"title: {_yaml(slug + ' — dossier')}", f"entity: {slug}",
           f'generated_at: "{now}"', f"members: {len(members)}",
           f"verification: {verification.verdict}"]
+    acl = dossier_acl([m.get("acl") for m in members])
+    if acl is not None:
+        # the INTERSECTION of the members' audiences — a rollup never widens access
+        fm.append("acl: [" + ", ".join(_yaml(a) for a in acl) + "]")
     if verification.numbers_unverified:
         fm.append("unverified_numbers: [" + ", ".join(_yaml(t) for t in verification.numbers_unverified) + "]")
     if verification.numbers_unanchored:

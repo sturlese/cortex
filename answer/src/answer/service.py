@@ -21,6 +21,8 @@ PAGE_EXCERPT = 6000
 class AnswerService:
     def __init__(self, settings: Settings):
         self.settings = settings
+        # the deployment's ACL scope: every read path filters through it (None = unrestricted)
+        self.audiences = set(settings.audiences) if settings.audiences else None
         self.conn = index.connect(settings.state_dir)
         self.refresh()
 
@@ -30,20 +32,28 @@ class AnswerService:
 
     # ── primitives (used by tools, the fake, and the MCP adapter) ───────────
     def get_page(self, path: str) -> dict | None:
-        return index.get_page(self.conn, path)
+        page = index.get_page(self.conn, path)
+        if page and not index.visible(page.get("acl"), self.audiences):
+            return None                  # out of scope = does not exist for this client
+        return page
 
     def search(self, query: str, k: int = retrieve.TOP_K) -> list[dict]:
-        return retrieve.search(self.conn, query, k=k)
+        return retrieve.search(self.conn, query, k=k, audiences=self.audiences)
 
     def query_metrics(self, metric=None, entity=None, period=None, limit: int = 50) -> list[dict]:
-        rows = metrics.query_metrics(self.settings.facts_dir, metric, entity, period, limit)
+        rows = metrics.query_metrics(self.settings.facts_dir, metric, entity, period, limit,
+                                     audiences=self.audiences)
         superseded = {r["path"] for r in
                       self.conn.execute("SELECT path FROM pages WHERE superseded_by != ''")}
         return metrics.annotate_superseded(rows, superseded)
 
     def known_entities(self) -> list[str]:
-        return [r["entity"] for r in
-                self.conn.execute("SELECT DISTINCT entity FROM pages WHERE entity != '' ORDER BY entity")]
+        """Entities with at least one page THIS client may see — existence is also scoped."""
+        out = set()
+        for r in self.conn.execute("SELECT entity, acl FROM pages WHERE entity != ''"):
+            if index.visible(r["acl"], self.audiences):
+                out.add(r["entity"])
+        return sorted(out)
 
     def match_metric(self, q_tokens: set, entity=None) -> str | None:
         """Best metric id whose kebab parts all appear in the question — 'arr usd', 'arr-usd'

@@ -50,9 +50,11 @@ def _query_periods(query: str) -> set[str]:
 
 
 def search(conn: sqlite3.Connection, query: str, k: int = TOP_K,
-           include_superseded: bool = True) -> list[dict]:
+           include_superseded: bool = True, audiences: set | None = None) -> list[dict]:
     """Top-k pages for the query with contract-aware ranking. Hits carry `factors` (the applied
-    adjustments) and a snippet. `include_superseded=False` drops stale versions entirely."""
+    adjustments) and a snippet. `include_superseded=False` drops stale versions entirely;
+    `audiences` filters to pages the client may see (None = unrestricted)."""
+    from answer.index import visible
     rows = conn.execute(
         "SELECT p.*, bm25(pages_fts) AS bm25 FROM pages_fts"
         " JOIN pages p ON p.rowid = pages_fts.rowid"
@@ -66,6 +68,8 @@ def search(conn: sqlite3.Connection, query: str, k: int = TOP_K,
     hits = []
     for r in rows:
         p = dict(r)
+        if not visible(p.get("acl"), audiences):
+            continue                     # not an annotation: an invisible page simply isn't there
         if not include_superseded and p["superseded_by"]:
             continue
         adjustments: list[tuple[float, str]] = []
