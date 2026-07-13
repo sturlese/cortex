@@ -49,6 +49,7 @@ services:
       CLEAN_TOKEN_BUDGET: ${CLEAN_TOKEN_BUDGET:-0}  # hard per-pass spend ceiling (0 = uncapped)
       CLEAN_PLAYBOOK: ${CLEAN_PLAYBOOK:-on}         # off = ignore the supervisor-distilled playbook
       CLEAN_FACTS: ${CLEAN_FACTS:-on}               # off = skip typed numeric facts extraction
+      CLEAN_FACTS_PROSE: ${CLEAN_FACTS_PROSE:-on}   # off = facts from sheets only
       BRAIN_FACTS_DIR: /data/brain-facts
       CLEAN_MODEL: ${CLEAN_MODEL:-gpt-5.4}
       CLEAN_REASONING_EFFORT: ${CLEAN_REASONING_EFFORT:-medium}

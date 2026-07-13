@@ -58,6 +58,25 @@ class FactsOutput(BaseModel):
     reason: str = Field(description="how the grid was read (orientation, header/period location), briefly")
 
 
+class ProseFact(BaseModel):
+    """One typed numeric fact proposed from PROSE. The anchor is a verbatim quote: the validator
+    requires the quote to appear literally in the source, the value to appear in the quote, and
+    the period (if claimed) to be readable from the quote or the filename."""
+    metric: str = Field(description="canonical kebab-case metric id, e.g. arr-usd, routing-cost-savings")
+    metric_raw: str = Field(description="the label phrase EXACTLY as it appears inside the quote")
+    value_raw: str = Field(description="the figure EXACTLY as written in the quote — copy, never reformat")
+    unit: str | None = Field(None, description="usd, eur, %, x, ... when evident")
+    period: str | None = Field(None, description="normalized period: YYYY, YYYY-MM or YYYY-QN — only if stated")
+    dimension: str | None = Field(None, description="short qualifier (region, product, cohort)")
+    quote: str = Field(description="verbatim source snippet (<=300 chars) containing label and value")
+
+
+class ProseFactsOutput(BaseModel):
+    """The prose-facts agent's typed observations for one document."""
+    observations: list[ProseFact] = Field(default_factory=list)
+    reason: str = Field(description="what kind of figures the document carries, briefly")
+
+
 class OpsReport(BaseModel):
     """The supervisor's structured verdict on the pipeline (ops.py) — rendered to ops-report.md.
     Written for a human operator: findings are observations, actions are what the agent DID

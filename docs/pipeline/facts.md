@@ -19,6 +19,18 @@ The agent sees each sheet as numbered rows/cells and pages through big grids wit
 (`facts_rejected` pass stat, `FACTS REJECTED` log lines) with a reason:
 `value-not-in-cell` · `label-not-found` · `period-not-found` · `bad-coordinates` · `duplicate-cell`.
 
+## Prose documents: the quote is the anchor
+
+Non-sheet documents (`representation: full|digest`) go through a second extractor with the same
+doctrine, adapted to text: the agent must copy a **verbatim quote** (≤300 chars) per figure,
+containing both the label and the value. The validator requires the quote to appear literally in
+the source (whitespace-reflow tolerant — extractions wrap lines), the value and label to appear
+inside the quote, and the period (if claimed) to be readable from the quote or the filename.
+`source_ref = fileId!text!<offset>` points at the quote's position. Rejection reasons:
+`quote-not-in-source` · `value-not-in-quote` · `label-not-in-quote` · `period-not-in-quote` ·
+`duplicate`. Derived figures ("up 40%" computed from two numbers) are out of scope by
+construction — the quote must state the figure.
+
 ## The store contract
 
 `facts.db`, table `observations` — one row per verified observation:
@@ -53,6 +65,7 @@ deletions propagate exactly like pages.
 | Var | Default | Meaning |
 |---|---|---|
 | `CLEAN_FACTS` | `on` | `off` disables the layer entirely |
+| `CLEAN_FACTS_PROSE` | `on` | `off` disables the prose extractor (sheets keep working) |
 | `BRAIN_FACTS_DIR` | `/data/brain-facts` | store location (the `brain-facts` volume) |
 
 Offline: `CLEAN_LLM=fake` maps grids with a deterministic header heuristic; `fake-flawed` also

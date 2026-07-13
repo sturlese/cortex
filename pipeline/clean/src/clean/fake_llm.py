@@ -191,3 +191,58 @@ class FakeFactsProcessor:
     async def run(self, prompt: str, *, deps=None, usage_limits=None):
         out = facts_from_grid(deps.sheets if deps else {}, flawed=self.flawed)
         return types.SimpleNamespace(output=out, usage=_Usage())
+
+
+# prose figures worth faking: currency-marked or magnitude-suffixed numbers only ("10k-stop"
+# style hyphenated qualifiers are excluded — they are units of description, not metric values)
+_PROSE_FIGURE = re.compile(r"[€$£]\s?\d[\d.,]*\s?(?:bn|[kKmMbB])?|\b\d[\d.,]*\s?(?:bn|[kKmMbB])\b(?!-)")
+_PROSE_STOP = {"the", "a", "an", "for", "of", "in", "on", "was", "is", "our", "this", "that"}
+
+
+def prose_facts_from_text(filename: str, text: str, flawed: bool = False):
+    """Deterministic prose heuristic: one observation per currency/magnitude figure in the first
+    chunk, quoted with its whole sentence; the metric name = the sentence's first content words.
+    Crude but valid — label and value are inside the quote by construction.
+
+    `flawed=True` prepends one observation whose quote is NOT in the document, so demos/evals can
+    watch the quote validator drop it."""
+    from clean.schemas import ProseFact, ProseFactsOutput
+    from clean.verify import parse_period
+
+    obs: list[ProseFact] = []
+    if flawed and "quarterly report" in filename.lower():
+        obs.append(ProseFact(metric="seeded-prose-fact", metric_raw="invented context",
+                             value_raw="999999", quote="invented context says 999999 here"))
+    for sentence in re.split(r"(?<=[.!?])\s+", text[:4000]):
+        m = _PROSE_FIGURE.search(sentence)
+        if not m:
+            continue
+        words = [w for w in re.findall(r"[A-Za-z]+", sentence) if w.lower() not in _PROSE_STOP]
+        if len(words) < 2:
+            continue
+        label = " ".join(words[:2])
+        quote = re.sub(r"\s+", " ", sentence).strip()[:300]
+        obs.append(ProseFact(
+            metric="-".join(w.lower() for w in words[:2]), metric_raw=label,
+            value_raw=m.group(0).lstrip("€$£ ").strip(),
+            unit="usd" if "$" in m.group(0) else None,
+            period=parse_period(quote), quote=quote))
+        if len(obs) >= 8:
+            break
+    return ProseFactsOutput(observations=obs, reason="fake backend: sentence-figure heuristic")
+
+
+class FakeProseFactsProcessor:
+    """Drop-in for the prose-facts agent (no deps; the text travels in the prompt)."""
+
+    def __init__(self, flawed: bool = False):
+        self.flawed = flawed
+
+    async def run(self, prompt: str, *, deps=None, usage_limits=None):
+        filename = ""
+        text = prompt
+        if prompt.startswith("filename="):
+            head, _, text = prompt.partition("\n\nDOCUMENT TEXT:\n")
+            filename = head.split("=", 1)[1]
+        out = prose_facts_from_text(filename, text, flawed=self.flawed)
+        return types.SimpleNamespace(output=out, usage=_Usage())

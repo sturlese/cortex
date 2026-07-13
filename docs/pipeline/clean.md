@@ -51,11 +51,11 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
    `units/<unit>/` or `general/`, named `slug(filename)-<sha1(id)[:6]>.md` (stable + unique).
    Pages produced through OCR carry `extraction_method: vision` + `ocr_model` (auditable).
    Contract: [brain-page-contract.md](brain-page-contract.md).
-6. **Facts** (`facts.py`, sheets only): a second bounded agent maps the grid to typed metric
-   observations; a deterministic validator re-reads every claimed cell and only literal matches
-   land in the facts store (`brain-facts/`: SQLite + JSONL, `source_ref` per number). The agent
-   judges, the grid decides — see [facts.md](facts.md) and
-   [ADR 005](../decisions/005-facts-layer.md).
+6. **Facts** (`facts.py`): a second bounded agent maps sheet grids — and, quote-anchored, prose
+   documents — to typed metric observations; a deterministic validator re-reads every claimed
+   cell/quote and only literal matches land in the facts store (`brain-facts/`: SQLite + JSONL,
+   `source_ref` per number). The agent judges, the source decides — see [facts.md](facts.md)
+   and [ADR 005](../decisions/005-facts-layer.md).
 
 ## Orchestration (`main.py`)
 
@@ -93,6 +93,7 @@ raw file ─▶ deterministic converter ─▶ agentic processor ─▶ determin
 | `CLEAN_TOKEN_BUDGET` | `0` | hard per-pass token ceiling (0 = uncapped); pass pauses cleanly when hit |
 | `CLEAN_PLAYBOOK` | `on` | `off` disables injecting the supervisor-distilled playbook |
 | `CLEAN_FACTS` | `on` | `off` disables the typed numeric facts layer ([facts.md](facts.md)) |
+| `CLEAN_FACTS_PROSE` | `on` | `off` disables prose facts (sheets keep working) |
 | `BRAIN_FACTS_DIR` | `/data/brain-facts` | facts store location (facts.db + facts.jsonl) |
 | `CLEAN_TRACE` | — | `logfire` = OpenTelemetry tracing of every agent run (optional dep) |
 | `GEMINI_API_KEY` | — | enables the agent's `ocr()` tool; without it the tool degrades gracefully |

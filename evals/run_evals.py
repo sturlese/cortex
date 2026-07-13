@@ -132,11 +132,13 @@ def eval_facts(facts_dir: Path, stats: dict) -> None:
         hits += any(r["value_raw"] == g["value_raw"] for r in got)
     metric("facts: exact value+period spot-checks", f"{hits}/{len(golden['spot_checks'])}",
            hits == len(golden["spot_checks"]))
-    # the fake-flawed backend seeds one observation whose value is NOT in its cell: the
-    # deterministic validator must reject it and it must never reach the store.
-    bad = query_facts(str(facts_dir), metric="seeded-bad-value")
-    metric("facts: seeded bad value rejected by the validator",
-           f"{stats.get('facts_rejected', 0)} rejected", not bad and stats.get("facts_rejected") == 1)
+    # the fake-flawed backend seeds one sheet observation whose value is NOT in its cell and one
+    # prose observation whose quote is NOT in the document: the deterministic validators must
+    # reject both and neither may ever reach the store.
+    bad = (query_facts(str(facts_dir), metric="seeded-bad-value")
+           + query_facts(str(facts_dir), metric="seeded-prose-fact"))
+    metric("facts: seeded bad sheet+prose facts rejected",
+           f"{stats.get('facts_rejected', 0)} rejected", not bad and stats.get("facts_rejected") == 2)
 
 
 def eval_ops_claims(state_dir: Path, raw: Path, brain: Path) -> None:

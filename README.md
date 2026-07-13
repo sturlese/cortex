@@ -62,10 +62,10 @@ in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
 - **clean** — agentic workers with bounded autonomy: structured outputs, self-escalation to vision
   OCR, exact-content dedup, end-to-end deletion propagation, per-pass token budget, and the
   verifier-driven correction loop. Every page carries `verification:` and OCR provenance.
-- **facts** — the typed numeric layer: an agent maps each spreadsheet grid to
-  `(entity, metric, value, unit, period)` observations; a deterministic validator re-reads every
-  claimed cell and only literal matches enter the store (SQLite + diffable JSONL, one
-  `source_ref` per number). The agent judges, the grid decides.
+- **facts** — the typed numeric layer: an agent maps each spreadsheet grid — and, quote-anchored,
+  each prose document — to `(entity, metric, value, unit, period)` observations; a deterministic
+  validator re-reads every claimed cell/quote and only literal matches enter the store (SQLite +
+  diffable JSONL, one `source_ref` per number). The agent judges, the source decides.
 - **ops** — the supervisor agent: reads code-aggregated telemetry, spot-audits pages against
   freshly re-extracted sources, requeues bounded work, distills the workers' playbook, writes
   `ops-report.md`. Human-on-the-loop by construction.

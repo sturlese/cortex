@@ -24,6 +24,7 @@ def env(tmp_path, monkeypatch):
     }}))
     monkeypatch.setattr(clean_main, "build_agent", lambda **kw: object())
     monkeypatch.setattr(clean_main, "build_facts_agent", lambda: object())
+    monkeypatch.setattr(clean_main, "build_prose_facts_agent", lambda: object())
     cfg = Settings(raw_dir=str(raw), brain_md_dir=str(tmp_path / "brain"),
                    state_dir=str(tmp_path / "state"), dry_run=False,
                    facts_dir=str(tmp_path / "facts"))
@@ -125,6 +126,7 @@ def test_run_once_throttles_state_saves(tmp_path, monkeypatch):
     (raw / "_state.json").write_text(_json.dumps({"files": inv}))
     monkeypatch.setattr(clean_main, "build_agent", lambda **kw: object())
     monkeypatch.setattr(clean_main, "build_facts_agent", lambda: object())
+    monkeypatch.setattr(clean_main, "build_prose_facts_agent", lambda: object())
     saves = []
     real_save = clean_main.save_state
     monkeypatch.setattr(clean_main, "save_state",

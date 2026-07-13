@@ -14,7 +14,6 @@ import os
 import sqlite3
 
 from clean.facts import _num
-from clean.schemas import FactObservation
 
 DB_FILE = "facts.db"
 JSONL_FILE = "facts.jsonl"
@@ -52,14 +51,12 @@ def _connect(facts_dir: str) -> sqlite3.Connection:
     return conn
 
 
-def source_ref(file_id: str, o: FactObservation) -> str:
-    return f"{file_id}!{o.sheet}!R{o.row}C{o.col}"
-
-
-def replace_facts(facts_dir: str, file_id: str, observations: list[FactObservation],
+def replace_facts(facts_dir: str, file_id: str, rows: list[dict],
                   *, page_path: str | None, entity: str | None, org_unit: str | None,
                   extracted_at: str) -> int:
-    """Atomically replace the document's observations (reprocess-safe idempotency)."""
+    """Atomically replace the document's observations (reprocess-safe idempotency). `rows` are
+    validated observations as dicts (facts.sheet_rows_for_store / prose_rows_for_store):
+    {metric, metric_raw, value_raw, unit, period, dimension, source_ref}."""
     conn = _connect(facts_dir)
     try:
         with conn:
@@ -68,11 +65,11 @@ def replace_facts(facts_dir: str, file_id: str, observations: list[FactObservati
                 "INSERT INTO observations (file_id, page_path, entity, org_unit, metric,"
                 " metric_raw, value_raw, value_num, unit, period, dimension, source_ref,"
                 " extracted_at, verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)",
-                [(file_id, page_path, entity, org_unit, o.metric, o.metric_raw, o.value_raw,
-                  _num(o.value_raw), o.unit, o.period, o.dimension, source_ref(file_id, o),
-                  extracted_at)
-                 for o in observations])
-        return len(observations)
+                [(file_id, page_path, entity, org_unit, r["metric"], r["metric_raw"],
+                  r["value_raw"], _num(r["value_raw"]), r.get("unit"), r.get("period"),
+                  r.get("dimension"), r["source_ref"], extracted_at)
+                 for r in rows])
+        return len(rows)
     finally:
         conn.close()
 
