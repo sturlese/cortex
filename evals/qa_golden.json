@@ -1,0 +1,40 @@
+{
+  "_comment": "Golden Q&A for the end-to-end answer evals (run_evals.eval_answers): the whole loop corpus -> clean -> facts -> versions -> index -> answer, offline. Four families: numeric exactness (the exact figure with the right citation), freshness (the superseding document's value wins the conflict), refusal (questions the brain cannot answer must be declined — the anti-hallucination metric), retrieval (the right page is found and cited). Every answer must leave with verification=verified.",
+  "questions": [
+    {
+      "id": "numeric exactness",
+      "q": "what is the arr-usd for initech in 2026-03?",
+      "expect": {
+        "refused": false,
+        "contains": ["512000"],
+        "cites": "entities/initech/kpi-metrics-2026-261367.md",
+        "verdict": "verified"
+      }
+    },
+    {
+      "id": "freshness (conflict -> current version)",
+      "q": "what is the revenue impact for globex?",
+      "expect": {
+        "refused": false,
+        "contains": ["1.3M"],
+        "not_contains": ["1.2M"],
+        "cites": "entities/globex/quarterly-report-q1-2026-final-3865bd.md",
+        "verdict": "verified"
+      }
+    },
+    {
+      "id": "refusal (not in the brain)",
+      "q": "what is our office plant watering policy?",
+      "expect": { "refused": true, "verdict": "verified" }
+    },
+    {
+      "id": "retrieval + citation",
+      "q": "what did globex ask for before the renewal?",
+      "expect": {
+        "refused": false,
+        "cites": "entities/globex/meeting-notes-2026-02-14-3fb561.md",
+        "verdict": "verified"
+      }
+    }
+  ]
+}

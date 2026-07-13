@@ -41,9 +41,11 @@ the judge loop correct them — look for `· self-corrected` in the log and `ver
 the stats. The KPI sheet's numbers also land as cell-verified **facts**
 (`examples/out/brain-facts/facts.jsonl`) — including one seeded wrong value the validator
 rejects. A seeded near-duplicate ("Quarterly Report … FINAL") becomes an explicit
-`supersedes` chain, and every page carries a **provable `as_of`**. Inspect `examples/out/`,
-then run `make eval` for the 15-metric golden scorecard. Swap in `CLEAN_LLM=openai` +
-`OPENAI_API_KEY` for real pages.
+`supersedes` chain, every page carries a **provable `as_of`**, and step 6 asks the brain three
+questions — an exact figure with cell provenance, a conflict resolved to current truth, and an
+honest refusal. Inspect `examples/out/`, then run `make eval` for the 19-metric golden
+scorecard (including end-to-end **golden Q&A**: exactness, freshness, refusal, retrieval).
+Swap in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
 
 ## If you only have 5 minutes
 
@@ -132,11 +134,13 @@ Details, folder conventions and the page contract: **[docs/](docs/README.md)**.
 
 ## Testing & observability
 
-~220 tests across four packages (75% coverage gate in CI), including the real agents exercised
+~350 tests across five packages (75% coverage gate in CI), including the real agents exercised
 offline against their real tools, plus an [eval harness](evals/) that scores the whole system
-against a golden set on every push — curation accuracy, placement, seeded-hallucination catch
-rate, graph canonicalization. `CLEAN_TRACE=logfire` exports every agent run — prompts, tool calls,
-retries — as OpenTelemetry spans (optional dependency).
+against a golden set on every push — curation accuracy, placement, seeded-defect catch rates
+(hallucination, misattribution, bad facts), the supersedes chain, graph canonicalization, and
+**end-to-end golden Q&A** (numeric exactness, freshness, refusal, retrieval).
+`CLEAN_TRACE=logfire` exports every agent run — prompts, tool calls, retries — as OpenTelemetry
+spans (optional dependency).
 
 ```bash
 make test    # all suites

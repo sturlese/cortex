@@ -12,6 +12,7 @@ the quality we promised"*. This harness runs the entire pipeline over the fictio
 | **facts** | the KPI sheet becomes exactly the expected typed observations with exact values and periods, and the **seeded wrong-value observation** is rejected by the deterministic cell validator — the store never holds it |
 | **claims** | the offline supervisor runs and its **sampled claim judge** (paragraphs anchored to source windows) raises zero false alarms on faithful pages |
 | **time** | the seeded near-duplicate revision (draft + FINAL with corrected figures) becomes an explicit **supersedes chain** in state and on both pages, and pages carry provable `as_of` |
+| **qa** | golden questions against the produced brain, end to end ([qa_golden.json](qa_golden.json)): **numeric exactness** (the exact figure, correctly cited), **freshness** (the conflict between draft and FINAL resolves to the current value), **refusal** (unanswerable questions are declined — the anti-hallucination metric), **retrieval** (the right page found and cited). Every answer must carry the answer verifier's `verified` verdict |
 | **graph** | mention canonicalization yields exactly the expected entity nodes |
 
 ```bash
