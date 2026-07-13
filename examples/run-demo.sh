@@ -37,7 +37,7 @@ mkdir -p "$OUT/raw"
 cp -R "$ROOT/examples/demo-corpus/." "$OUT/raw/"
 cp "$OUT/work/inventory.json" "$OUT/raw/_state.json"
 
-echo "==> [3/5] clean: raw -> brain-md (offline fake LLM; one SEEDED hallucination to watch the loop work)"
+echo "==> [3/5] clean: raw -> brain-md (offline fake LLM; a SEEDED hallucination + a SEEDED misattribution to watch the loop work)"
 CLEAN_LLM=fake-flawed CLEAN_DRY_RUN=false \
 RAW_DIR="$OUT/raw" BRAIN_MD_DIR="$OUT/brain-md" CLEAN_STATE_DIR="$OUT/state" \
 PYTHONPATH="$ROOT/pipeline/clean/src" "$PY" -m clean.main --once
@@ -66,7 +66,8 @@ echo "  - the CSV page is a digest with detail_in_source: true"
 echo "  - every page carries 'verification: verified' — the trust layer traced each figure"
 echo "    in the body back to the source text (deterministic, no LLM)"
 echo "  - THE CONTROL LOOP, LIVE: the fake backend deliberately invented two figures in the"
-echo "    quarterly report; the verifier caught them and the judge loop corrected the page —"
-echo "    look for '· self-corrected' in the clean log above and verify_retries=1 in the stats"
+echo "    quarterly report AND tied a real KPI figure to the wrong month; the verifier caught"
+echo "    both (presence check + period anchoring) and the judge loop corrected the pages —"
+echo "    look for '· self-corrected' in the clean log above and verify_retries=2 in the stats"
 echo "  - the supervisor read the run's telemetry and wrote ops-report.md (health + findings)"
 find "$OUT/brain-md" -name '*.md' | sed "s|$OUT/|  |" | sort
