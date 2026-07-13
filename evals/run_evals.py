@@ -24,11 +24,12 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-for rel in ("pipeline/clean/src", "pipeline/graph/src", "pipeline/corpus/src"):
+for rel in ("pipeline/clean/src", "pipeline/graph/src", "pipeline/corpus/src", "answer/src"):
     sys.path.insert(0, str(ROOT / rel))
 
 OUT = ROOT / "evals" / "out"
 GOLDEN = json.loads((ROOT / "evals" / "golden.json").read_text())
+QA_GOLDEN = json.loads((ROOT / "evals" / "qa_golden.json").read_text())
 CORPUS = ROOT / "examples" / "demo-corpus"
 
 RESULTS: list[tuple[str, str, bool]] = []
@@ -183,6 +184,33 @@ def eval_graph(brain: Path, graphed: Path) -> None:
            stats["entities"] == GOLDEN["graph"]["entities_total"] and node_ok)
 
 
+def eval_answers(brain: Path, facts_dir: Path, answer_state: Path) -> None:
+    """The promise, measured end to end: questions against the produced brain, answered by the
+    answer service (offline synthesizer) and judged against golden expectations — exact figures,
+    current-truth conflicts, honest refusals, correct citations. Every answer must also leave
+    with the deterministic answer verifier's 'verified' verdict."""
+    from answer.service import AnswerService
+    from answer.settings import Settings as AnswerSettings
+    svc = AnswerService(AnswerSettings(brain_md_dir=str(brain), facts_dir=str(facts_dir),
+                                       state_dir=str(answer_state), llm="fake"))
+    for case in QA_GOLDEN["questions"]:
+        res = asyncio.run(svc.ask(case["q"]))
+        exp = case["expect"]
+        ok = True
+        if "refused" in exp:
+            ok &= res["refused"] is exp["refused"]
+        for needle in exp.get("contains", []):
+            ok &= needle in res["answer"]
+        for needle in exp.get("not_contains", []):
+            ok &= needle not in res["answer"]
+        if "cites" in exp:
+            ok &= exp["cites"] in [c["path"] for c in res["citations"]]
+        if "verdict" in exp:
+            ok &= res["verification"]["verdict"] == exp["verdict"]
+        detail = "refused" if res["refused"] else f"verdict={res['verification']['verdict']}"
+        metric(f"qa: {case['id']}", detail, bool(ok))
+
+
 def main() -> int:
     shutil.rmtree(OUT, ignore_errors=True)
     work, raw, brain, state_dir, graphed, facts_dir = (
@@ -195,6 +223,7 @@ def main() -> int:
     eval_versions(state_dir, brain)
     eval_ops_claims(state_dir, raw, brain)
     eval_graph(brain, graphed)
+    eval_answers(brain, facts_dir, OUT / "answer-state")
 
     width = max(len(n) for n, _, _ in RESULTS)
     lines = ["# Eval scorecard", "", "| Metric | Result | Pass |", "|---|---|---|"]
