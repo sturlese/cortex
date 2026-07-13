@@ -150,7 +150,7 @@ class FakeDossierWriter:
         import types
         facts_txt = query_facts_impl(deps, "")
         current = [m for m in deps.members if not m.get("superseded_by")]
-        lines = [f"## Status", f"{len(deps.members)} document(s) on file, {len(current)} current.", "",
+        lines = ["## Status", f"{len(deps.members)} document(s) on file, {len(current)} current.", "",
                  "## Key figures"]
         if "no verified observations" in facts_txt or "no facts store" in facts_txt:
             lines.append("No verified observations in the facts store.")

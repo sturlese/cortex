@@ -12,12 +12,12 @@ import re
 import time
 
 from clean.agents import build_agent
+from clean.dossiers import build_dossiers
 from clean.entity import build_catalog
 from clean.facts import build_facts_agent, build_prose_facts_agent
 from clean.factstore import delete_facts, export_jsonl
 from clean.playbook import load_playbook
 from clean.settings import Settings
-from clean.dossiers import build_dossiers
 from clean.state import classify_pending, load_inventory, load_state, save_state
 from clean.versions import detect_versions
 from clean.worker import process_one
