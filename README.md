@@ -54,11 +54,11 @@ Swap in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
 
 | Look at | Why it's interesting |
 |---|---|
-| [`clean/src/verify.py`](pipeline/clean/src/clean/verify.py) | the trust layer: every figure on a page traced back to its source — and to the *period* the source gives it — deterministically. "Zero invention" AND "no misattribution" are *enforced*, and it judges the generator's retry |
-| [`clean/src/agents.py`](pipeline/clean/src/clean/agents.py) + [`tools.py`](pipeline/clean/src/clean/tools.py) | bounded agency: tool-using workers where a clean doc still costs exactly 1 request |
-| [`clean/src/facts.py`](pipeline/clean/src/clean/facts.py) | the numeric layer: an agent maps each sheet to typed observations, a deterministic validator re-reads every claimed cell — hallucinated numbers cannot enter the store |
-| [`clean/src/ops.py`](pipeline/clean/src/clean/ops.py) + [`claims.py`](pipeline/clean/src/clean/claims.py) | the supervisor: telemetry → diagnosis → sampled structured claim checks (paragraph anchored to evidence, judged supported/unsupported/contradicted) → bounded actions → a report for a human |
-| [`clean/src/playbook.py`](pipeline/clean/src/clean/playbook.py) | agent memory that cannot go feral: one auditable page, capped, advisory, kill-switched |
+| [`pipeline/clean/src/clean/verify.py`](pipeline/clean/src/clean/verify.py) | the trust layer: every figure on a page traced back to its source — and to the *period* the source gives it — deterministically. "Zero invention" AND "no misattribution" are *enforced*, and it judges the generator's retry |
+| [`pipeline/clean/src/clean/agents.py`](pipeline/clean/src/clean/agents.py) + [`tools.py`](pipeline/clean/src/clean/tools.py) | bounded agency: tool-using workers where a clean doc still costs exactly 1 request |
+| [`pipeline/clean/src/clean/facts.py`](pipeline/clean/src/clean/facts.py) | the numeric layer: an agent maps each sheet to typed observations, a deterministic validator re-reads every claimed cell — hallucinated numbers cannot enter the store |
+| [`pipeline/clean/src/clean/ops.py`](pipeline/clean/src/clean/ops.py) + [`claims.py`](pipeline/clean/src/clean/claims.py) | the supervisor: telemetry → diagnosis → sampled structured claim checks (paragraph anchored to evidence, judged supported/unsupported/contradicted) → bounded actions → a report for a human |
+| [`pipeline/clean/src/clean/playbook.py`](pipeline/clean/src/clean/playbook.py) | agent memory that cannot go feral: one auditable page, capped, advisory, kill-switched |
 | [`answer/src/answer/`](answer/src/answer/) | the serving half: contract-enforcing retrieval, exact facts, and an answering agent judged by a deterministic **answer verifier** — "trust the pages" becomes "trust the answers" |
 | [`evals/`](evals/) | golden scorecard run on every push: curation, placement, and the trust layer catching a **seeded hallucination** — quality measured, not assumed |
 | [`docs/decisions/`](docs/decisions/) | eleven ADRs recording *why* — including what was deliberately NOT built |
@@ -144,7 +144,7 @@ Details, folder conventions and the page contract: **[docs/](docs/README.md)**.
 
 ## Testing & observability
 
-~390 tests across seven packages (75% coverage gate in CI), including the real agents exercised
+~420 tests across seven packages (75% coverage gate in CI), including the real agents exercised
 offline against their real tools, plus an [eval harness](evals/) that scores the whole system
 against a golden set on every push — curation accuracy, placement, seeded-defect catch rates
 (hallucination, misattribution, bad facts), the supersedes chain, dossiers, ACL enforcement,

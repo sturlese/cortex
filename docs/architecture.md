@@ -29,6 +29,7 @@ pipeline writes `brain-md` + `brain-facts`; two serving options read them.
 | Stage | In → Out | Nature | State |
 |---|---|---|---|
 | fetch | Drive folder → `raw/` + `_state.json` | deterministic | per-file fingerprint manifest |
+| slack | workspace export → `raw/` + `_state.json` entries | deterministic (stdlib only) | namespaced `slack-…` ids in the shared inventory |
 | clean | `raw/` → `brain-md/` + `brain-facts/` + `brain-dossiers/` | agentic workers (1 request/doc happy path; bounded tools + 1 judge retry; facts, version and dossier agents, each judged by pure code) | `clean-state.json` (sha256 idempotency) |
 | ops | telemetry → diagnosis → bounded actions | supervisor agent (≤14 req; requeue ≤20, playbook ≤1500c) | `ops-report.md` + playbook |
 | graph | `brain-md/` → `brain-md-graphed/` | deterministic | none (fully regenerable) |
