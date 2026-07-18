@@ -17,6 +17,7 @@ from clean.dossiers import build_dossiers
 from clean.entity import build_catalog
 from clean.facts import build_facts_agent, build_prose_facts_agent
 from clean.factstore import delete_facts, export_jsonl
+from clean.page import remove_page
 from clean.playbook import load_playbook
 from clean.settings import Settings
 from clean.state import classify_pending, load_inventory, load_state, save_state
@@ -64,12 +65,8 @@ def dedup_pending(pending, state, inventory, brain_md_dir=None, facts_dir=None):
             # a previously-processed doc that turned into a duplicate leaves a stale page behind:
             # remove it so brain-md doesn't keep outdated content the state no longer points at.
             prev_path = (state["files"].get(doc["fileId"], {}).get("lastResult") or {}).get("path")
-            if brain_md_dir and prev_path:
-                try:
-                    os.remove(os.path.join(brain_md_dir, prev_path))
-                    log(f"DELETED page {prev_path} ({doc['fileId']} now a duplicate of {canon})")
-                except FileNotFoundError:
-                    pass
+            if brain_md_dir and remove_page(brain_md_dir, prev_path):
+                log(f"DELETED page {prev_path} ({doc['fileId']} now a duplicate of {canon})")
             if facts_dir:
                 delete_facts(facts_dir, doc["fileId"])   # its numbers are served by the canonical
             state["files"][doc["fileId"]] = {
@@ -144,12 +141,8 @@ async def run_once(cfg: Settings) -> dict:
                 # source gone from Drive -> remove its page AND its facts (deletions propagate)
                 prev = state["files"].get(file_id, {})
                 rel = (prev.get("lastResult") or {}).get("path")
-                if rel:
-                    try:
-                        os.remove(os.path.join(cfg.brain_md_dir, rel))
-                        log(f"DELETED page {rel} (source removed)")
-                    except FileNotFoundError:
-                        pass
+                if remove_page(cfg.brain_md_dir, rel):
+                    log(f"DELETED page {rel} (source removed)")
                 if facts_dir and delete_facts(facts_dir, file_id):
                     log(f"DELETED facts for {file_id} (source removed)")
                 state["files"][file_id] = {**prev, "status": "deleted", "updatedAt": now}
@@ -166,12 +159,8 @@ async def run_once(cfg: Settings) -> dict:
                 # so the stale copy (with outdated content) doesn't linger in brain-md forever.
                 old_path = (state["files"].get(file_id, {}).get("lastResult") or {}).get("path")
                 new_path = res.get("path")
-                if old_path and old_path != new_path:
-                    try:
-                        os.remove(os.path.join(cfg.brain_md_dir, old_path))
-                        log(f"DELETED stale page {old_path} (renamed/moved -> {new_path})")
-                    except FileNotFoundError:
-                        pass
+                if old_path != new_path and remove_page(cfg.brain_md_dir, old_path):
+                    log(f"DELETED stale page {old_path} (renamed/moved -> {new_path})")
                 state["files"][file_id] = {
                     "name": e.get("name"), "mimeType": e.get("mimeType"), "localPath": e.get("localPath"),
                     "sourceUri": e.get("sourceUri"), "rawHash": doc["rawHash"],

@@ -13,7 +13,8 @@ import json
 import os
 import sqlite3
 
-from clean.facts import _num
+from clean.fsutil import write_text_atomic
+from clean.numeric import parse_num
 
 DB_FILE = "facts.db"
 JSONL_FILE = "facts.jsonl"
@@ -70,7 +71,7 @@ def replace_facts(facts_dir: str, file_id: str, rows: list[dict],
                 " metric_raw, value_raw, value_num, unit, period, dimension, source_ref,"
                 " extracted_at, verified, acl) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
                 [(file_id, page_path, entity, org_unit, r["metric"], r["metric_raw"],
-                  r["value_raw"], _num(r["value_raw"]), r.get("unit"), r.get("period"),
+                  r["value_raw"], parse_num(r["value_raw"]), r.get("unit"), r.get("period"),
                   r.get("dimension"), r["source_ref"], extracted_at, r.get("acl"))
                  for r in rows])
         return len(rows)
@@ -132,9 +133,6 @@ def export_jsonl(facts_dir: str) -> int:
             "SELECT * FROM observations ORDER BY entity, metric, period, source_ref")]
     finally:
         conn.close()
-    tmp = os.path.join(facts_dir, JSONL_FILE + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        for r in rows:
-            f.write(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n")
-    os.replace(tmp, os.path.join(facts_dir, JSONL_FILE))
+    write_text_atomic(os.path.join(facts_dir, JSONL_FILE),
+                      "".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in rows))
     return len(rows)

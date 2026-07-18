@@ -7,7 +7,18 @@ facts they produce are structurally valid but crude — never feed them to a rea
 import re
 import types
 
-from clean.schemas import FactObservation, FactsOutput, Mention, PageMetadata, ProcessorOutput
+from clean.entity import slugify
+from clean.numeric import parse_num
+from clean.schemas import (
+    FactObservation,
+    FactsOutput,
+    Mention,
+    PageMetadata,
+    ProcessorOutput,
+    ProseFact,
+    ProseFactsOutput,
+)
+from clean.verify import parse_period
 
 _DATE = re.compile(r"\b(20\d{2})-(0[1-9]|1[0-2])(?:-(0[1-9]|[12]\d|3[01]))?\b")
 _CAP_WORD = re.compile(r"\b([A-Z][a-zA-Z]{3,})\b")
@@ -35,6 +46,12 @@ class _Usage:
     output_tokens = 0
     cache_read_tokens = 0
     details: dict = {}
+
+
+def fake_result(output):
+    """The (.output, .usage) result shape every fake backend returns from run() — one definition
+    for all of them (the fakes here plus the in-module ones in dossiers/versions/claims/ops)."""
+    return types.SimpleNamespace(output=output, usage=_Usage())
 
 
 def _parse_prompt(prompt: str) -> tuple[str, str, str]:
@@ -134,7 +151,7 @@ class FakeProcessor:
                 out = out.model_copy(update={"body_markdown": _DEMO_HALLUCINATION + (out.body_markdown or "")})
             elif "kpi" in low:
                 out = out.model_copy(update={"body_markdown": _DEMO_MISATTRIBUTION + (out.body_markdown or "")})
-        return types.SimpleNamespace(output=out, usage=_Usage())
+        return fake_result(out)
 
 
 def _guess_unit(header: str) -> str | None:
@@ -153,10 +170,6 @@ def facts_from_grid(sheets: dict, flawed: bool = False) -> FactsOutput:
 
     `flawed=True` prepends one observation whose value does NOT match its cell, so demos/evals
     can watch the deterministic validator drop it (the grid decides, not the model)."""
-    from clean.entity import slugify
-    from clean.facts import _num
-    from clean.verify import parse_period
-
     obs: list[FactObservation] = []
     for name, rows in sheets.items():
         if len(rows) < 2:
@@ -174,7 +187,7 @@ def facts_from_grid(sheets: dict, flawed: bool = False) -> FactsOutput:
                 if j - 1 >= len(headers):
                     break
                 header = headers[j - 1]
-                if not header or _num(str(cell)) is None:
+                if not header or parse_num(str(cell)) is None:
                     continue
                 obs.append(FactObservation(
                     metric=slugify(header) or "metric", metric_raw=header,
@@ -191,8 +204,7 @@ class FakeFactsProcessor:
         self.flawed = flawed
 
     async def run(self, prompt: str, *, deps=None, usage_limits=None):
-        out = facts_from_grid(deps.sheets if deps else {}, flawed=self.flawed)
-        return types.SimpleNamespace(output=out, usage=_Usage())
+        return fake_result(facts_from_grid(deps.sheets if deps else {}, flawed=self.flawed))
 
 
 # prose figures worth faking: currency-marked or magnitude-suffixed numbers only ("10k-stop"
@@ -208,9 +220,6 @@ def prose_facts_from_text(filename: str, text: str, flawed: bool = False):
 
     `flawed=True` prepends one observation whose quote is NOT in the document, so demos/evals can
     watch the quote validator drop it."""
-    from clean.schemas import ProseFact, ProseFactsOutput
-    from clean.verify import parse_period
-
     obs: list[ProseFact] = []
     if flawed and "quarterly report" in filename.lower() and "final" not in filename.lower():
         obs.append(ProseFact(metric="seeded-prose-fact", metric_raw="invented context",
@@ -246,5 +255,4 @@ class FakeProseFactsProcessor:
         if prompt.startswith("filename="):
             head, _, text = prompt.partition("\n\nDOCUMENT TEXT:\n")
             filename = head.split("=", 1)[1]
-        out = prose_facts_from_text(filename, text, flawed=self.flawed)
-        return types.SimpleNamespace(output=out, usage=_Usage())
+        return fake_result(prose_facts_from_text(filename, text, flawed=self.flawed))

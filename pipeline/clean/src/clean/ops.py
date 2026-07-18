@@ -16,18 +16,19 @@ import datetime
 import json
 import os
 import sys
-import types
 from collections import Counter
 from dataclasses import dataclass, field
 
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import RunContext
 from pydantic_ai.usage import UsageLimits
 
-from clean.agents import build_model
 from clean.converters import extract, method_for_ext
+from clean.fake_llm import fake_result
+from clean.fsutil import write_text_atomic
+from clean.llm import build_processor
 from clean.playbook import save_pending, save_playbook
 from clean.schemas import OpsReport
-from clean.settings import Settings, resolve_backend
+from clean.settings import Settings
 from clean.state import load_state, save_state
 
 OPS_LIMITS = UsageLimits(request_limit=14, tool_calls_limit=12)
@@ -308,52 +309,47 @@ class FakeOps:
                            summary=f"Pipeline is {health}: {s['files_total']} files, "
                                    f"{errors} errors, {failed} failed verifications.",
                            findings=findings, actions_taken=[], recommendations=recs)
-        usage = types.SimpleNamespace(input_tokens=0, output_tokens=0, cache_read_tokens=0, details={})
-        return types.SimpleNamespace(output=report, usage=usage)
+        return fake_result(report)
 
 
 def build_ops_agent(ctx: OpsContext):
-    if resolve_backend() != "openai":
-        return FakeOps(ctx)
-    model, settings = build_model()
-    agent = Agent(model, output_type=OpsReport, instructions=OPS_SYS,
-                  model_settings=settings, deps_type=OpsContext)
+    def _tools(agent):
+        @agent.tool
+        async def pipeline_status(rc: RunContext[OpsContext]) -> str:
+            """Aggregated pipeline telemetry: statuses, verification verdicts, OCR/retry counts, top errors."""
+            return json.dumps(aggregate_status(rc.deps.state))
 
-    @agent.tool
-    async def pipeline_status(rc: RunContext[OpsContext]) -> str:
-        """Aggregated pipeline telemetry: statuses, verification verdicts, OCR/retry counts, top errors."""
-        return json.dumps(aggregate_status(rc.deps.state))
+        @agent.tool
+        async def list_pages(rc: RunContext[OpsContext], kind: str) -> str:
+            """Up to 20 pages of a problem class: verify_failed | verify_partial | manual_review | error | duplicate."""
+            return list_pages_impl(rc.deps, kind)
 
-    @agent.tool
-    async def list_pages(rc: RunContext[OpsContext], kind: str) -> str:
-        """Up to 20 pages of a problem class: verify_failed | verify_partial | manual_review | error | duplicate."""
-        return list_pages_impl(rc.deps, kind)
+        @agent.tool
+        async def audit_page(rc: RunContext[OpsContext], file_id: str) -> str:
+            """Spot-audit: the stored page next to a fresh extraction of its source (max 5 per run)."""
+            return await asyncio.to_thread(audit_page_impl, rc.deps, file_id)
 
-    @agent.tool
-    async def audit_page(rc: RunContext[OpsContext], file_id: str) -> str:
-        """Spot-audit: the stored page next to a fresh extraction of its source (max 5 per run)."""
-        return await asyncio.to_thread(audit_page_impl, rc.deps, file_id)
+        @agent.tool
+        async def check_claims(rc: RunContext[OpsContext], file_id: str) -> str:
+            """Structured semantic judge: every prose paragraph of the page ruled
+            supported/unsupported/contradicted against its best-matching source window, with quoted
+            evidence (max 3 per run). Verdicts persist in the pipeline state."""
+            from clean.claims import build_claim_judge
+            return await check_claims_impl(rc.deps, build_claim_judge(), file_id)
 
-    @agent.tool
-    async def check_claims(rc: RunContext[OpsContext], file_id: str) -> str:
-        """Structured semantic judge: every prose paragraph of the page ruled
-        supported/unsupported/contradicted against its best-matching source window, with quoted
-        evidence (max 3 per run). Verdicts persist in the pipeline state."""
-        from clean.claims import build_claim_judge
-        return await check_claims_impl(rc.deps, build_claim_judge(), file_id)
+        @agent.tool
+        async def requeue(rc: RunContext[OpsContext], file_ids: list[str], reason: str) -> str:
+            """Mark documents for reprocessing next pass (hard cap 20 per run). State your reason."""
+            return requeue_impl(rc.deps, file_ids, reason)
 
-    @agent.tool
-    async def requeue(rc: RunContext[OpsContext], file_ids: list[str], reason: str) -> str:
-        """Mark documents for reprocessing next pass (hard cap 20 per run). State your reason."""
-        return requeue_impl(rc.deps, file_ids, reason)
+        @agent.tool
+        async def update_playbook(rc: RunContext[OpsContext], content: str) -> str:
+            """Propose the workers' advisory playbook: distilled, corpus-specific guidance (once per
+            run). A human approves the proposal before it goes live."""
+            return update_playbook_impl(rc.deps, content)
 
-    @agent.tool
-    async def update_playbook(rc: RunContext[OpsContext], content: str) -> str:
-        """Propose the workers' advisory playbook: distilled, corpus-specific guidance (once per
-        run). A human approves the proposal before it goes live."""
-        return update_playbook_impl(rc.deps, content)
-
-    return agent
+    return build_processor(OpsReport, OPS_SYS, fake=lambda flawed: FakeOps(ctx),
+                           deps_type=OpsContext, tools=_tools)
 
 
 def render_report(report: OpsReport, ctx: OpsContext) -> str:
@@ -397,8 +393,8 @@ async def main() -> int:
         save_state(cfg.state_dir, ctx.state)
     md = render_report(report, ctx)
     path = os.path.join(cfg.state_dir, REPORT_FILE)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(md)
+    # atomic like every other artifact: an operator (or a tail -f) may read mid-write
+    write_text_atomic(path, md)
     print(md)
     print(f"[ops] report written to {path}")
     return 0

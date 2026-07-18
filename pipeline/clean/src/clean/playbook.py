@@ -22,6 +22,8 @@ import datetime
 import os
 import sys
 
+from clean.fsutil import write_text_atomic
+
 PLAYBOOK_FILE = "playbook.md"
 PENDING_FILE = "playbook-pending.md"
 PLAYBOOK_MAX_CHARS = 1500
@@ -52,11 +54,7 @@ def _write_stamped(path: str, content: str, origin: str) -> str:
     would push the body tail past the cap and load would silently truncate it."""
     stamp = f"<!-- {origin}, {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M')}Z -->\n"
     body = (content or "").strip()[:PLAYBOOK_MAX_CHARS - len(stamp)]
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(f"{stamp}{body}\n")
-    os.replace(tmp, path)
+    write_text_atomic(path, f"{stamp}{body}\n")
     return body
 
 
