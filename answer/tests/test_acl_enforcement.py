@@ -9,11 +9,28 @@ from answer.service import AnswerService
 
 
 def test_visible_rule():
-    assert visible(None, {"eng"}) is True
-    assert visible("", {"eng"}) is True
-    assert visible("sales", None) is True
+    assert visible(None, {"eng"}) is True             # no ACL -> open
+    assert visible("sales", None) is True             # unrestricted client sees everything
     assert visible("sales,leadership", {"sales"}) is True
     assert visible("sales", {"eng"}) is False
+    # an EMPTY acl is not "no ACL": it is a deliberately empty intersection (dossier whose
+    # members share no audience) — restricted to nobody below unrestricted clients, exactly
+    # like the pipeline's visible([], audiences). It used to be served OPEN.
+    assert visible("", {"eng"}) is False
+    assert visible("", None) is True
+
+
+def test_empty_acl_page_is_hidden_from_scoped_clients(corpus):
+    """Regression: a page carrying `acl: []` (e.g. a dossier over members with disjoint
+    audiences) must not be visible to any scoped client — but stays visible unrestricted."""
+    write_page(corpus.brain_md_dir, "entities/acme/dossier.md",
+               {"type": "dossier", "title": "Acme dossier", "entity": "acme",
+                "verification": "verified", "acl": "[]"},
+               "Cross-audience rollup for Acme. Contract value 900000 usd.")
+    scoped = _scoped(corpus, "eng")
+    assert scoped.get_page("entities/acme/dossier.md") is None
+    assert not any(h["path"] == "entities/acme/dossier.md" for h in scoped.search("acme dossier"))
+    assert _scoped(corpus).get_page("entities/acme/dossier.md") is not None
 
 
 def _scoped(corpus, *audiences):
@@ -73,6 +90,26 @@ def test_ask_refuses_out_of_scope_but_answers_in_scope(corpus):
 
 def test_unrestricted_service_unchanged(service):
     assert asyncio.run(service.ask("what is the arr-usd for initech in 2026-03?"))["refused"] is False
+
+
+def test_pre_fix_index_reencodes_empty_acl_as_open(tmp_path):
+    """Old indexes stored '' for pages with no acl; under the fixed encoding '' means
+    "restricted to nobody", so connect() must re-encode legacy rows to NULL (their observed
+    behavior) exactly once, without touching rows written after the migration."""
+    from answer import index
+    state = str(tmp_path / "state")
+    conn = index.connect(state)
+    conn.execute("INSERT INTO pages (path, acl) VALUES ('legacy.md', '')")
+    conn.execute("PRAGMA user_version = 0")
+    conn.commit()
+    conn.close()
+    conn = index.connect(state)                      # migration fires
+    assert conn.execute("SELECT acl FROM pages WHERE path='legacy.md'").fetchone()["acl"] is None
+    conn.execute("INSERT INTO pages (path, acl) VALUES ('empty.md', '')")
+    conn.commit()
+    conn.close()
+    conn = index.connect(state)                      # migration must NOT fire again
+    assert conn.execute("SELECT acl FROM pages WHERE path='empty.md'").fetchone()["acl"] == ""
 
 
 def test_settings_parse_audiences(monkeypatch):
