@@ -45,9 +45,9 @@ the stats. The KPI sheet's numbers also land as cell-verified **facts**
 rejects. A seeded near-duplicate ("Quarterly Report … FINAL") becomes an explicit
 `supersedes` chain, every page carries a **provable `as_of`**, and step 6 asks the brain three
 questions — an exact figure with cell provenance, a conflict resolved to current truth, and an
-honest refusal. Inspect `examples/out/`, then run `make eval` for the 22-metric golden
+honest refusal. Inspect `examples/out/`, then run `make eval` for the 24-metric golden
 scorecard (including end-to-end **golden Q&A**: exactness, freshness, refusal, retrieval —
-plus ACL enforcement and the Slack-connector proof).
+plus ACL enforcement, cross-package contract parity and the Slack-connector proof).
 Swap in `CLEAN_LLM=openai` + `OPENAI_API_KEY` for real pages.
 
 ## If you only have 5 minutes

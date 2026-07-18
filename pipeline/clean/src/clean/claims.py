@@ -50,10 +50,10 @@ def strip_page_chrome(page_text: str) -> str:
     """Body of a brain-md page: frontmatter, H1, warning banners, table rows and system-appended
     footers removed — tables are the numeric verifier's jurisdiction, footers are page chrome;
     prose is the claim judge's."""
-    from clean.page import SYSTEM_FOOTERS
+    from clean.page import FRONTMATTER_RE, SYSTEM_FOOTERS
     body = page_text
     if body.startswith("---"):
-        m = re.match(r"^---\n.*?\n---\n?", body, re.S)
+        m = FRONTMATTER_RE.match(body)
         if m:
             body = body[m.end():]
     lines = [ln for ln in body.splitlines()

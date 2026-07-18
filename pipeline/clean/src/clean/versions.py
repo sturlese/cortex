@@ -29,6 +29,7 @@ from clean.converters import extract, method_for_ext
 from clean.fake_llm import fake_result
 from clean.fsutil import write_text_atomic
 from clean.llm import build_processor
+from clean.page import FRONTMATTER_RE
 
 VERSION_LIMITS = UsageLimits(request_limit=2, tool_calls_limit=0)
 MAX_PAIRS = 10            # judged pairs per pass
@@ -155,7 +156,7 @@ def annotate_page(brain_md_dir: str, rel: str, field: str, value: str) -> bool:
             text = f.read()
     except FileNotFoundError:
         return False
-    m = re.match(r"^---\n(.*?\n)---\n", text, re.S)
+    m = FRONTMATTER_RE.match(text)
     if not m:
         return False
     fm = [ln for ln in m.group(1).splitlines() if not ln.startswith(f"{field}:")]

@@ -245,6 +245,34 @@ def eval_acl(brain: Path, facts_dir: Path, answer_state: Path) -> None:
            "enforced" if ok else "leak", ok)
 
 
+def eval_contract_parity(facts_dir: Path) -> None:
+    """ADR 001 doctrine check: the packages share no code, so the hand-mirrored halves of each
+    cross-package contract are PROVEN to agree here — the one harness that imports both sides.
+    - ACL visibility: clean's visible(list) vs answer's visible(csv) over the full truth table,
+      including the empty-intersection dossier case that once diverged (served open).
+    - Facts read path: the pipeline's query_facts vs the serving layer's query_metrics over the
+      store this run produced — same rows, same order, case-folded inputs, verified-only."""
+    from answer.index import visible as answer_visible
+    from answer.metrics import query_metrics
+    from clean.acl import visible as clean_visible
+    from clean.factstore import query_facts
+
+    cases = [(None, None), (None, {"eng"}), ([], None), ([], {"eng"}),
+             (["sales"], None), (["sales"], {"sales"}), (["sales"], {"eng"}),
+             (["sales", "leadership"], {"eng", "leadership"})]
+    mismatches = [
+        (acl, aud) for acl, aud in cases
+        if clean_visible(acl, aud) != answer_visible(None if acl is None else ",".join(acl), aud)]
+    metric("contract: ACL visibility parity (clean vs answer)",
+           f"{len(cases) - len(mismatches)}/{len(cases)} cases", not mismatches)
+
+    probes = [{}, {"metric": "arr-usd"}, {"metric": "ARR-USD", "entity": "  Initech "},
+              {"entity": "globex"}, {"metric": "arr-usd", "period": "2026"}]
+    agree = all(query_facts(str(facts_dir), limit=100, **p)
+                == query_metrics(str(facts_dir), limit=100, **p) for p in probes)
+    metric("contract: facts read-path parity (pipeline vs serving)", f"{len(probes)} probes", agree)
+
+
 def eval_answers(brain: Path, facts_dir: Path, answer_state: Path) -> None:
     """The promise, measured end to end: questions against the produced brain, answered by the
     answer service (offline synthesizer) and judged against golden expectations — exact figures,
@@ -287,6 +315,7 @@ def main() -> int:
     eval_graph(brain, graphed)
     eval_answers(brain, facts_dir, OUT / "answer-state")
     eval_acl(brain, facts_dir, OUT / "answer-state-acl")
+    eval_contract_parity(facts_dir)
     eval_slack_connector(OUT)
 
     width = max(len(n) for n, _, _ in RESULTS)

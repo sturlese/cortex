@@ -16,6 +16,12 @@ SOURCE_FORMAT = {"pdf": "pdf", "sheet": "spreadsheet", "docx": "document", "offi
 # (claims.py) must skip these lines — they are page chrome, not model claims.
 SYSTEM_FOOTERS = ("Summary of a live spreadsheet", "Original file:")
 
+# The frontmatter block of a page this package wrote. ONE definition inside clean: build_page
+# emits it, the version phase (versions.annotate_page) rewrites a single field in place, and the
+# claim judge (claims.strip_page_chrome) strips it. graph and answer carry their own
+# hand-mirrored parsers — the packages deliberately share no code.
+FRONTMATTER_RE = re.compile(r"^---\n(.*?\n)---\n?", re.S)
+
 # A scalar is emitted plain (unquoted) only when it provably round-trips: it matches a restricted
 # charset AND yaml.safe_load reads it back as the identical string. The round-trip catches every
 # YAML 1.1 implicit type — dates (2001-12-14), hex/binary/underscored ints (0x1F, 1_000), bool/null
