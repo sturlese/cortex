@@ -41,15 +41,25 @@ def connect(state_dir: str) -> sqlite3.Connection:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)")}
     if "acl" not in cols:
         conn.execute("ALTER TABLE pages ADD COLUMN acl TEXT")
+    if conn.execute("PRAGMA user_version").fetchone()[0] < 1:
+        # pre-fix indexes stored '' for BOTH "no acl" and "empty acl"; under the fixed encoding
+        # '' means "empty ACL: restricted to nobody", so re-encode old rows to NULL (their
+        # observed behavior: open) and let refresh re-derive the truth from the pages.
+        with conn:
+            conn.execute("UPDATE pages SET acl = NULL WHERE acl = ''")
+            conn.execute("PRAGMA user_version = 1")
     return conn
 
 
 def visible(acl: str | None, audiences: set[str] | None) -> bool:
     """The one visibility rule (mirrors the pipeline's acl.py — packages share no code):
-    no ACL -> visible to all; unrestricted client (None) -> sees everything; else intersect."""
-    if not acl or audiences is None:
+    no ACL (None) -> visible to all; unrestricted client (None) -> sees everything; else
+    intersect. An EMPTY acl ('') is not "no ACL": it is a deliberately empty intersection
+    (a dossier whose members share no audience) — restricted to nobody below unrestricted,
+    exactly like the pipeline's visible([], audiences)."""
+    if acl is None or audiences is None:
         return True
-    return bool(set(acl.split(",")) & audiences)
+    return bool({a for a in acl.split(",") if a} & audiences)
 
 
 def split_frontmatter(text: str) -> tuple[dict, str]:
@@ -96,7 +106,9 @@ def refresh(conn: sqlite3.Connection, brain_md_dir: str) -> dict:
         fm, body = split_frontmatter(text)
         tags = " ".join(str(t) for t in fm.get("tags", []) if t) if isinstance(fm.get("tags"), list) else ""
         acl_list = fm.get("acl")
-        acl = ",".join(str(a) for a in acl_list) if isinstance(acl_list, list) else ""
+        # NULL = the page carries no acl (open); '' = it carries an EMPTY one (nobody) — the
+        # CSV encoding must preserve that distinction or a restricted dossier is served open.
+        acl = ",".join(str(a) for a in acl_list) if isinstance(acl_list, list) else None
         row = (
             rel, str(fm.get("title", "") or ""), str(fm.get("type", "") or ""),
             str(fm.get("entity", "") or ""), str(fm.get("unit", "") or ""),

@@ -40,11 +40,25 @@ def load_acl_config(path: str | None) -> dict | None:
             raise ValueError(f"acl config {path}: every rule needs a non-empty 'audiences' list")
         if not any(k in rule for k in _MATCHERS):
             raise ValueError(f"acl config {path}: rule needs one of {_MATCHERS}: {rule}")
+        _check_labels(path, rule["audiences"])
     default = cfg.get("default", ["all"])
     if not isinstance(default, list) or not default:
         raise ValueError(f"acl config {path}: 'default' must be a non-empty list")
+    _check_labels(path, default)
     return {"default": [str(a) for a in default],
             "rules": [{k: rule[k] for k in (*_MATCHERS, "audiences") if k in rule} for rule in rules]}
+
+
+def _check_labels(path: str, audiences: list) -> None:
+    """Audience labels are CSV-serialized downstream (facts rows, the answer index): a comma
+    inside a label would silently split into two audiences at enforcement time — the exact
+    silent-corruption failure mode an access-control config must not have. Empty labels would
+    vanish in the same round-trip."""
+    for a in audiences:
+        s = str(a)
+        if "," in s or not s.strip():
+            raise ValueError(f"acl config {path}: invalid audience label {s!r} "
+                             "(labels must be non-empty and must not contain ',')")
 
 
 def resolve_acl(config: dict | None, source_path: str, unit: str | None,

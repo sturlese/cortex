@@ -27,6 +27,17 @@ def test_load_acl_config_none_and_validation(tmp_path):
         load_acl_config(_config(tmp_path, {"default": [], "rules": []}))
 
 
+def test_load_acl_config_rejects_labels_that_break_csv_serialization(tmp_path):
+    """Audience labels travel as CSV in the facts store and the answer index: a comma inside a
+    label would silently split into two audiences at enforcement time; an empty label vanishes.
+    Both must fail loudly at config load."""
+    with pytest.raises(ValueError, match="invalid audience label"):
+        load_acl_config(_config(tmp_path, {
+            "rules": [{"unit": "X", "audiences": ["sales,leadership"]}]}))
+    with pytest.raises(ValueError, match="invalid audience label"):
+        load_acl_config(_config(tmp_path, {"default": ["  "], "rules": []}))
+
+
 def test_resolve_acl_first_match_wins(tmp_path):
     cfg = load_acl_config(_config(tmp_path, {
         "default": ["all"],
