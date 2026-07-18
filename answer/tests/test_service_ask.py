@@ -119,3 +119,15 @@ def test_page_text_fences_body_and_reports_currency(service):
     assert "<<<UNTRUSTED-DATA" in txt
     assert "superseded_by: local-new" in txt
     assert "unknown page" in service.page_text("nope.md")
+
+
+def test_build_synthesizer_invalid_llm_fails_fast(corpus):
+    """An ANSWER_LLM typo must raise — never silently pick the fake (the old startswith check
+    accepted 'fakee') and never fall through to the real OpenAI path."""
+    import dataclasses
+
+    import pytest
+
+    from answer.synthesize import build_synthesizer
+    with pytest.raises(RuntimeError, match="invalid ANSWER_LLM"):
+        build_synthesizer(dataclasses.replace(corpus, llm="fakee"))

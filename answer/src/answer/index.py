@@ -152,3 +152,9 @@ def refresh(conn: sqlite3.Connection, brain_md_dir: str) -> dict:
 def get_page(conn: sqlite3.Connection, path: str) -> dict | None:
     r = conn.execute("SELECT * FROM pages WHERE path = ?", (path,)).fetchone()
     return dict(r) if r else None
+
+
+def superseded_paths(conn: sqlite3.Connection) -> set[str]:
+    """Paths of pages a newer version supersedes — the page-index half of "current truth"
+    (the facts store joins against it via metrics.annotate_superseded)."""
+    return {r["path"] for r in conn.execute("SELECT path FROM pages WHERE superseded_by != ''")}

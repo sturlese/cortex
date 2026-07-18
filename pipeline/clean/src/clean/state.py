@@ -1,4 +1,27 @@
-"""State + idempotency: which files were processed, keyed by source file id and content hash."""
+"""State + idempotency: which files were processed, keyed by source file id and content hash.
+
+The state is a plain JSON dict — deliberately untyped (ADR 001), but its shape IS a contract:
+five modules read and mutate it in place (main, worker via lastResult, versions, dossiers, ops),
+so the schema lives here, in the one module every consumer already imports:
+
+    {"version": 1,
+     "files": {<fileId>: {
+         "name", "mimeType", "localPath", "sourceUri",   # copied from the connector's inventory
+         "rawHash",                                      # sha256 of the raw file (idempotency key)
+         "status",         # processed | error | requeued | duplicate | deleted
+         "updatedAt",      # UTC iso timestamp of the last transition
+         "error",          # status=error: message (truncated)
+         "requeueReason",  # status=requeued: the supervisor's reason (ops.requeue_impl)
+         "duplicateOf",    # status=duplicate: the canonical file id serving this content
+         "claims",         # ops claim checks: {checked, unsupported[], contradicted[]}
+         "lastResult": {   # worker.process_one's returned dict, verbatim; notably:
+             "path", "title", "entity", "unit", "as_of", "acl", "verification",
+             "skipped", "representation", "extraction_quality", "usage",
+             "supersedes", "superseded_by",    # written by the version phase, not the worker
+         }}},
+     "dossiers": {<entitySlug>: {"hash", "path", "updatedAt"}}}   # dossiers.build_dossiers
+
+Renaming a key here means updating every consumer above — grep before you touch it."""
 import hashlib
 import json
 import os
