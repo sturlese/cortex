@@ -95,23 +95,26 @@ def delete_facts(facts_dir: str, file_id: str) -> int:
 def query_facts(facts_dir: str, metric: str | None = None, entity: str | None = None,
                 period: str | None = None, limit: int = 100) -> list[dict]:
     """Exact lookups over the store (the answer layer's numeric path). Filters are equality on
-    the normalized columns; `period` also matches coarser rows by prefix (2026 matches 2026-03)."""
+    the normalized columns; `period` also matches coarser rows by prefix (2026 matches 2026-03).
+
+    Same semantics as the serving layer's hand-mirrored copy (answer/metrics.query_metrics —
+    packages share no code): only verified rows, case-folded metric/entity inputs. The store
+    only ever holds verified lowercase rows today, so these are invariants made explicit — the
+    two read paths must never drift (the golden evals prove they agree)."""
     if not os.path.exists(db_path(facts_dir)):
         return []
-    where, args = [], []
+    where, args = ["verified = 1"], []
     if metric:
         where.append("metric = ?")
-        args.append(metric)
+        args.append(metric.strip().lower())
     if entity:
         where.append("entity = ?")
-        args.append(entity)
+        args.append(entity.strip().lower())
     if period:
         where.append("(period = ? OR period LIKE ?)")
         args.extend([period, f"{period}-%"])
-    sql = "SELECT * FROM observations"
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY entity, metric, period, source_ref LIMIT ?"
+    sql = ("SELECT * FROM observations WHERE " + " AND ".join(where)
+           + " ORDER BY entity, metric, period, source_ref LIMIT ?")
     args.append(limit)
     conn = _connect(facts_dir)
     try:

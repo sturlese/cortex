@@ -153,3 +153,39 @@ def test_reject_leaves_registry_untouched(tmp_path, monkeypatch):
     assert cli(["propose", "--in", brain, "--registry", registry_path]) == 0
     assert cli(["reject", "--registry", registry_path]) == 0
     assert load_registry(registry_path).entities == {}
+
+
+# ── backend dispatch: the CLEAN_MODEL/CLEAN_LLM contract, mirrored from clean ─
+def test_build_merge_judge_invalid_backend_fails_fast(monkeypatch):
+    """A CLEAN_LLM typo must raise — never silently pick the fake (the old startswith check
+    accepted 'fakee') and never fall through to the real path."""
+    from graph.merges import build_merge_judge
+    monkeypatch.setenv("CLEAN_LLM", "fakee")
+    with pytest.raises(RuntimeError, match="invalid CLEAN_LLM"):
+        build_merge_judge()
+
+
+def test_resolve_model_provider_prefixed_passthrough(monkeypatch):
+    """A provider-prefixed pydantic-ai string bypasses the OpenAI path (and its key
+    requirement) — the judge must honor the same CLEAN_MODEL syntax clean does."""
+    from graph.merges import _resolve_model
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("CLEAN_MODEL", "anthropic:claude-sonnet-4-5")
+    model, settings = _resolve_model()
+    assert model == "anthropic:claude-sonnet-4-5"
+    assert settings is None
+
+
+def test_resolve_model_bare_name_requires_key_and_valid_effort(monkeypatch):
+    from graph.merges import _resolve_model
+    monkeypatch.setenv("CLEAN_MODEL", "gpt-5.4")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+        _resolve_model()
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-fake")
+    monkeypatch.setenv("CLEAN_REASONING_EFFORT", "ultra")
+    with pytest.raises(RuntimeError, match="CLEAN_REASONING_EFFORT"):
+        _resolve_model()
+    monkeypatch.setenv("CLEAN_REASONING_EFFORT", "minimal")
+    _, settings = _resolve_model()
+    assert settings["openai_reasoning_effort"] == "minimal"

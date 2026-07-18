@@ -41,9 +41,7 @@ class AnswerService:
     def query_metrics(self, metric=None, entity=None, period=None, limit: int = 50) -> list[dict]:
         rows = metrics.query_metrics(self.settings.facts_dir, metric, entity, period, limit,
                                      audiences=self.audiences)
-        superseded = {r["path"] for r in
-                      self.conn.execute("SELECT path FROM pages WHERE superseded_by != ''")}
-        return metrics.annotate_superseded(rows, superseded)
+        return metrics.annotate_superseded(rows, index.superseded_paths(self.conn))
 
     def known_entities(self) -> list[str]:
         """Entities with at least one page THIS client may see — existence is also scoped."""
