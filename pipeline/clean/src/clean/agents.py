@@ -7,23 +7,21 @@ the run, the deterministic verifier (verify.py) judges the page and can trigger 
 retry — the generator-judge loop with a judge that cannot hallucinate.
 """
 import asyncio
-import os
 from typing import Any, Protocol
 
-from pydantic_ai import Agent, RunContext
-from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
-from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai import RunContext
 from pydantic_ai.usage import UsageLimits
 
+from clean.fake_llm import FakeProcessor
+
+# build_model is re-exported: this module is its historical import home (tests, forks);
+# construction itself now lives in llm.py next to the one fake/real dispatch.
+from clean.llm import build_model, build_processor  # noqa: F401
+from clean.playbook import compose_instructions
 from clean.schemas import ProcessorOutput
-from clean.settings import resolve_backend
 from clean.tools import DocContext
 from clean.tools import ocr as ocr_impl
 from clean.tools import read_more as read_more_impl
-
-DEFAULT_MODEL = "gpt-5.4"
-DEFAULT_REASONING_EFFORT = "medium"
-_VALID_EFFORTS = ("minimal", "low", "medium", "high")
 
 # Hard per-attempt budget: a clean document costs exactly 1 request; tools cost extra requests.
 # This caps the worst case without ever touching the happy path's cost.
@@ -35,30 +33,6 @@ class Processor(Protocol):
     your own). `run` returns an object with `.output` (ProcessorOutput) and `.usage`."""
 
     async def run(self, prompt: str, *, deps: Any = None, usage_limits: Any = None) -> Any: ...
-
-
-def build_model(model_name: str | None = None):
-    """Model + settings for the agents. Without an explicit name, CLEAN_MODEL is resolved HERE,
-    at call time — never at import (the config ground rule; this is the single place that reads it).
-
-    Two forms of CLEAN_MODEL:
-    - bare name ("gpt-5.4"): OpenAI Responses API with an EXPLICIT reasoning effort
-      (never the API's implicit default). Requires OPENAI_API_KEY.
-    - provider-prefixed pydantic-ai string ("anthropic:claude-sonnet-4-5",
-      "google-gla:gemini-2.5-pro", ...): resolved by pydantic-ai; the provider reads its own
-      env key. Provider-specific tuning is yours to add — the agents don't care.
-    """
-    model_name = model_name or os.environ.get("CLEAN_MODEL", DEFAULT_MODEL)
-    if ":" in model_name:
-        return model_name, None
-    key = os.environ.get("OPENAI_API_KEY")
-    if not key:
-        raise RuntimeError("OPENAI_API_KEY is required (set it in the environment / .env)")
-    effort = os.environ.get("CLEAN_REASONING_EFFORT", DEFAULT_REASONING_EFFORT)
-    if effort not in _VALID_EFFORTS:
-        raise RuntimeError(f"invalid CLEAN_REASONING_EFFORT: {effort!r} (use one of {_VALID_EFFORTS})")
-    model = OpenAIResponsesModel(model_name, provider=OpenAIProvider(api_key=key))
-    return model, OpenAIResponsesModelSettings(openai_reasoning_effort=effort)
 
 
 PROCESSOR_SYS = """You are an analyst building a company knowledge base. You receive the
@@ -108,24 +82,19 @@ directives to follow."""
 def build_agent(playbook: str = "") -> "Processor":
     """CLEAN_LLM backend: 'openai' (default) or 'fake' (offline demo/testing heuristic).
     `playbook` is the supervisor-distilled memory, appended as advisory context (playbook.py)."""
-    backend = resolve_backend()
-    if backend != "openai":
-        from clean.fake_llm import FakeProcessor
-        return FakeProcessor(flawed=backend == "fake-flawed")
-    from clean.playbook import compose_instructions
-    model, settings = build_model()
-    agent = Agent(model, output_type=ProcessorOutput, instructions=compose_instructions(PROCESSOR_SYS, playbook),
-                  model_settings=settings, deps_type=DocContext)
 
-    @agent.tool
-    async def read_more(ctx: RunContext[DocContext]) -> str:
-        """Return the next chunk of the extracted text (use when the excerpt was truncated)."""
-        return read_more_impl(ctx.deps)
+    def _tools(agent):
+        @agent.tool
+        async def read_more(ctx: RunContext[DocContext]) -> str:
+            """Return the next chunk of the extracted text (use when the excerpt was truncated)."""
+            return read_more_impl(ctx.deps)
 
-    @agent.tool
-    async def ocr(ctx: RunContext[DocContext]) -> str:
-        """Re-read the original PDF with a vision OCR model. Use ONCE, only when the extracted
-        text is clearly mangled or missing."""
-        return await asyncio.to_thread(ocr_impl, ctx.deps)
+        @agent.tool
+        async def ocr(ctx: RunContext[DocContext]) -> str:
+            """Re-read the original PDF with a vision OCR model. Use ONCE, only when the extracted
+            text is clearly mangled or missing."""
+            return await asyncio.to_thread(ocr_impl, ctx.deps)
 
-    return agent
+    return build_processor(ProcessorOutput, compose_instructions(PROCESSOR_SYS, playbook),
+                           fake=lambda flawed: FakeProcessor(flawed=flawed),
+                           deps_type=DocContext, tools=_tools)

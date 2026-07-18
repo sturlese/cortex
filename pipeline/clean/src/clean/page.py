@@ -6,6 +6,7 @@ import re
 import yaml
 
 from clean.entity import slugify
+from clean.fsutil import write_text_atomic
 from clean.schemas import ProcessorOutput
 
 # Format of the underlying source (so a client knows which tool to open it with).
@@ -166,11 +167,19 @@ def build_page(out: ProcessorOutput, lineage: dict, entity: dict = None, verific
 
 
 def write_page(brain_md_dir: str, rel_dir: str, slug: str, content: str) -> str:
-    out_dir = os.path.join(brain_md_dir, rel_dir)
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, f"{slug}.md")
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(content)
-    os.replace(tmp, path)
+    path = os.path.join(brain_md_dir, rel_dir, f"{slug}.md")
+    write_text_atomic(path, content)
     return os.path.relpath(path, brain_md_dir)
+
+
+def remove_page(brain_md_dir: str, rel: str | None) -> bool:
+    """Delete a page file by its state-recorded relative path. Idempotent: False when there was
+    nothing to delete (no path recorded / already gone). The single deletion primitive — dedup,
+    deletion propagation and renames (main.py) and dossier removal all go through it."""
+    if not rel:
+        return False
+    try:
+        os.remove(os.path.join(brain_md_dir, rel))
+    except FileNotFoundError:
+        return False
+    return True
