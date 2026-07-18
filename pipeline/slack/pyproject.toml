@@ -1,6 +1,6 @@
 [project]
 name = "slackexport"
-version = "0.1.0"
+version = "0.2.0"
 description = "Second source connector: a Slack workspace export becomes the pipeline's inventory."
 requires-python = ">=3.12"
 

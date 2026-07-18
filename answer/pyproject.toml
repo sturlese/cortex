@@ -1,6 +1,6 @@
 [project]
 name = "answer"
-version = "0.1.0"
+version = "0.2.0"
 description = "The serving half with the pipeline's guarantees: contract-enforcing retrieval, exact facts, verified answers over MCP."
 requires-python = ">=3.12"
 
