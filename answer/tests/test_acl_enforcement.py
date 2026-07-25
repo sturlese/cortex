@@ -37,6 +37,9 @@ def test_empty_acl_page_is_hidden_from_scoped_clients(corpus):
 
 
 def _scoped(corpus, *audiences):
+    # `or None` on purpose here and nowhere else: _scoped() with no labels means "unrestricted" for
+    # readability in these tests. Production code must test the scope with `is None` — see
+    # test_an_explicitly_empty_scope_is_empty_not_unrestricted for why () is not None.
     return AnswerService(dataclasses.replace(corpus, audiences=audiences or None))
 
 
@@ -200,4 +203,46 @@ def test_settings_parse_audiences(monkeypatch):
     monkeypatch.setenv("ANSWER_AUDIENCES", "sales, leadership")
     assert Settings.from_env().audiences == ("sales", "leadership")
     monkeypatch.setenv("ANSWER_AUDIENCES", "")
-    assert Settings.from_env().audiences is None
+    assert Settings.from_env().audiences is None                  # documented: unset = open corpus
+
+
+def test_a_scope_that_parses_to_no_labels_is_refused(monkeypatch):
+    """A set value that yields zero labels must NOT collapse to "no scope". It used to: `tuple(...)
+    or None` turned () into None, so ANSWER_AUDIENCES="," served the WHOLE corpus while the operator
+    believed the instance was scoped — one template rendering an empty list is enough. ADR 010 states
+    the rule for the write side: "A malformed config errors loudly: silently-open is the one failure
+    mode an access-control file must not have." The read side gets it too."""
+    import pytest
+
+    from answer.settings import Settings
+    for hostile in [",", ",,", " , ", "\t,\t", ",  ,", ", ,"]:
+        monkeypatch.setenv("ANSWER_AUDIENCES", hostile)
+        with pytest.raises(RuntimeError, match="ANSWER_AUDIENCES"):
+            Settings.from_env()
+    # An unset — or purely blank, which is indistinguishable from unset — scope stays the documented
+    # open corpus. What must fail is a value that LOOKS like it carries labels but carries none.
+    for open_corpus in [None, "", "   ", "\t"]:
+        monkeypatch.delenv("ANSWER_AUDIENCES", raising=False)
+        if open_corpus is not None:
+            monkeypatch.setenv("ANSWER_AUDIENCES", open_corpus)
+        assert Settings.from_env().audiences is None, repr(open_corpus)
+    monkeypatch.setenv("ANSWER_AUDIENCES", " ,finance,")      # stray separators still parse
+    assert Settings.from_env().audiences == ("finance",)
+
+
+def test_an_explicitly_empty_scope_is_empty_not_unrestricted(corpus):
+    """audiences=() is a client holding NO labels — it may see open content and nothing else. It
+    must never mean "unrestricted", the way `if settings.audiences` used to read it: an empty scope
+    is not the absence of a scope, exactly as index.visible('') is not index.visible(None)."""
+    _restricted_corpus(corpus)
+    empty = AnswerService(dataclasses.replace(corpus, audiences=()))
+    assert empty.audiences == set()                                   # not None
+    assert [n for n, probe in _LEAK_PROBES.items() if probe(empty)] == []   # sees no labeled content
+    assert empty.get_page("entities/initech/kpi.md") is not None      # unlabeled -> still open
+    assert empty.query_metrics("arr-usd")
+
+    # ...and the converse must NOT drift: None is unrestricted, and collapsing it into an empty
+    # scope would take every open deployment dark while still satisfying the assertions above.
+    unrestricted = AnswerService(dataclasses.replace(corpus, audiences=None))
+    assert unrestricted.audiences is None
+    assert [n for n, probe in _LEAK_PROBES.items() if not probe(unrestricted)] == []

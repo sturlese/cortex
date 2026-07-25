@@ -4,6 +4,11 @@ import os
 from dataclasses import dataclass
 
 
+def _labels(value: str) -> tuple:
+    """The audience labels in a comma-separated scope, stripped, blanks dropped."""
+    return tuple(a.strip() for a in value.split(",") if a.strip())
+
+
 @dataclass(frozen=True)
 class Settings:
     brain_md_dir: str = "/data/brain-md"       # the corpus (read-only; single writer: clean)
@@ -13,11 +18,27 @@ class Settings:
     model: str = "gpt-5.4"
     reasoning_effort: str = "medium"
     bearer_token: str = ""                     # optional static token for the http transport
-    audiences: tuple | None = None             # this deployment's ACL scope (None = unrestricted)
+    # this deployment's ACL scope. None = unrestricted (open corpus); a tuple = exactly those
+    # labels, and an EMPTY tuple is an empty scope (open content only), NOT the absence of one —
+    # the same distinction index.visible draws between acl='' and acl=None.
+    audiences: tuple | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
         aud = os.environ.get("ANSWER_AUDIENCES", "").strip()
+        if aud and not _labels(aud):
+            # A value carrying separators but no labels (",", " , "). Collapsing that to "no scope"
+            # served the whole corpus to a client the operator believed was scoped. ADR 010: a
+            # malformed access-control config errors loudly, because silently-open is the one
+            # failure mode it must not have.
+            #
+            # Blank stays unrestricted deliberately, NOT because it is indistinguishable from unset
+            # (os.environ would tell us): compose passes ANSWER_AUDIENCES=${ANSWER_AUDIENCES:-},
+            # so the default stack always sets it to "". Raising on blank would make an
+            # unconfigured deployment refuse to boot, and "empty = unrestricted" is the documented
+            # contract. So blank is the one implicit path to an open corpus, by design.
+            raise RuntimeError(f"invalid ANSWER_AUDIENCES: {aud!r} (no audience labels; "
+                               "leave it empty for an unrestricted instance)")
         return cls(
             brain_md_dir=os.environ.get("BRAIN_MD_DIR", cls.brain_md_dir),
             facts_dir=os.environ.get("BRAIN_FACTS_DIR", cls.facts_dir),
@@ -28,5 +49,5 @@ class Settings:
             bearer_token=os.environ.get("ANSWER_BEARER_TOKEN", ""),
             # audiences are a DEPLOYMENT property: one server instance = one ACL scope
             # (multi-tenant = one instance per audience set, like gbrain's per-client sources)
-            audiences=tuple(a.strip() for a in aud.split(",") if a.strip()) or None if aud else None,
+            audiences=_labels(aud) if aud else None,
         )

@@ -262,7 +262,10 @@ def eval_contract_parity(facts_dir: Path) -> None:
 
     cases = [(None, None), (None, {"eng"}), ([], None), ([], {"eng"}),
              (["sales"], None), (["sales"], {"sales"}), (["sales"], {"eng"}),
-             (["sales", "leadership"], {"eng", "leadership"})]
+             (["sales", "leadership"], {"eng", "leadership"}),
+             # an EMPTY client scope (a client holding no labels) is a reachable input, distinct from
+             # None: it sees open content and nothing else, on both sides of the mirror.
+             (None, set()), ([], set()), (["sales"], set())]
     mismatches = [
         (acl, aud) for acl, aud in cases
         if clean_visible(acl, aud) != answer_visible(None if acl is None else ",".join(acl), aud)]
