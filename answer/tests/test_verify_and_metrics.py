@@ -93,6 +93,29 @@ def test_pre_acl_facts_db_serves_unrestricted_but_never_a_scoped_client(tmp_path
     assert metrics.query_metrics(str(tmp_path), audiences={"eng"}) == []
 
 
+def test_exclude_pages_survives_a_low_sql_variable_limit(corpus, monkeypatch):
+    """`exclude_pages` carries every superseded page in the index, so an inline `NOT IN (?,?,…)`
+    is a parameter count that grows with the corpus. SQLITE_MAX_VARIABLE_NUMBER is 999 in plenty of
+    builds and crossing it does not degrade — it raises `too many SQL variables` and takes the whole
+    answer path down. Pinned with the limit forced low, so this fails on any build if the exclusion
+    ever goes back to an inline list."""
+    import sqlite3
+
+    real_connect = sqlite3.connect
+
+    def capped(*a, **kw):
+        conn = real_connect(*a, **kw)
+        conn.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 999)
+        return conn
+
+    monkeypatch.setattr(sqlite3, "connect", capped)
+    big = {f"entities/x/p{i}.md" for i in range(5000)}
+    assert metrics.query_metrics(corpus.facts_dir, "arr-usd", exclude_pages=big)       # must not raise
+    # and the exclusion still excludes
+    assert metrics.query_metrics(corpus.facts_dir, "arr-usd",
+                                 exclude_pages=big | {"entities/initech/kpi.md"}) == []
+
+
 def test_annotate_superseded():
     rows = [{"page_path": "a.md"}, {"page_path": "b.md"}, {"page_path": None}]
     out = metrics.annotate_superseded(rows, {"a.md"})

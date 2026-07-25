@@ -45,14 +45,22 @@ def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None 
     if period:
         where.append("(period = ? OR period LIKE ?)")
         args.extend([period, f"{period}-%"])
-    if exclude_pages:
-        where.append(f"(page_path IS NULL OR page_path NOT IN ({','.join('?' * len(exclude_pages))}))")
-        args.extend(sorted(exclude_pages))
     conn = sqlite3.connect(_db(facts_dir))
     conn.row_factory = sqlite3.Row
     try:
         if audiences is not None and not _carries_acl(conn):
             return []
+        if exclude_pages:
+            # Through a TEMP table, not an inline `NOT IN (?,?,…)`: the exclusion is every superseded
+            # page in the index, so an inline list is a parameter count that grows with the corpus.
+            # SQLITE_MAX_VARIABLE_NUMBER is 999 in plenty of builds, and crossing it does not degrade
+            # — it raises `too many SQL variables` and takes the whole answer path down. The temp
+            # table lives on this per-call connection only, so there is nothing to clean up.
+            conn.execute("CREATE TEMP TABLE _excluded_pages (path TEXT PRIMARY KEY)")
+            conn.executemany("INSERT OR IGNORE INTO _excluded_pages VALUES (?)",
+                             [(p,) for p in exclude_pages])
+            # a row with no page_path is not superseded (annotate_superseded agrees), so it stays
+            where.append("(page_path IS NULL OR page_path NOT IN (SELECT path FROM _excluded_pages))")
         # The scope goes in the WHERE, so LIMIT counts rows the client may SEE. Filtering after a SQL
         # LIMIT let invisible rows consume slots and starve a scoped client to zero results, while
         # dropping the LIMIT to filter in Python unbounds the sorter. See index.visible_sql.
