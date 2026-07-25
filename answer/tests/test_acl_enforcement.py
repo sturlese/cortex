@@ -2,6 +2,7 @@
 import asyncio
 import dataclasses
 import inspect
+import os
 import re
 
 from tests.conftest import add_fact, write_page
@@ -236,6 +237,52 @@ def test_an_acl_the_index_cannot_read_is_not_open(corpus):
     write_page(corpus.brain_md_dir, "general/noacl.md", {"title": "x"}, "open body")
     index.refresh(conn, corpus.brain_md_dir)
     assert index.get_page(conn, "general/noacl.md")["acl"] is None
+
+
+def test_an_acl_in_a_block_we_could_not_read_is_not_open(corpus):
+    """Recognising the block must not require the CLOSING `---`. It did, so a page carrying
+    `acl: [finance]` inside a block that is unclosed, truncated mid-write, or ended with YAML's
+    `...` was indexed as "no acl" — open to everyone. A BOM or a leading blank line before the
+    opener did the same. The BOM case parses correctly now (a BOM is encoding noise, not content);
+    the rest cannot be parsed at all, so they resolve to restricted-to-nobody."""
+    unreadable = {
+        "unclosed": "---\ntitle: p\nacl: [finance]\nbody\n",
+        "truncated": "---\ntitle: p\nacl: [fin",
+        "dots": "---\ntitle: p\nacl: [finance]\n...\nbody\n",
+        "leadblank": "\n---\ntitle: p\nacl: [finance]\n---\nbody\n",
+    }
+    for name, text in unreadable.items():
+        with open(os.path.join(corpus.brain_md_dir, f"{name}.md"), "w", encoding="utf-8") as f:
+            f.write(text)
+    with open(os.path.join(corpus.brain_md_dir, "bom.md"), "w", encoding="utf-8") as f:
+        f.write("﻿---\ntitle: p\nacl: [finance]\n---\nbody\n")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    for name in unreadable:
+        acl = index.get_page(conn, f"{name}.md")["acl"]
+        assert acl == "", name                             # NULL here would be open to everyone
+        assert not index.visible(acl, {"eng"}), name
+        assert index.visible(acl, None), name
+    # the BOM is stripped, so this page's real ACL is read rather than merely being closed
+    assert index.get_page(conn, "bom.md")["acl"] == "finance"
+    assert index.visible("finance", {"finance"}) and not index.visible("finance", {"eng"})
+
+
+def test_a_non_string_label_is_not_coerced_into_a_grantable_one(corpus):
+    """`str(label)` would RENAME rather than reject, and a renamed label is grantable. YAML 1.1
+    reads `acl: [010]` as the int 8 and `acl: [12:30]` as 750, so coercing indexed audiences "8"
+    and "750" that nobody granted — the widening the label check exists to prevent. It also
+    collided `[~]` with `["None"]`."""
+    shapes = {"octal": ("[010]", "8"), "sexagesimal": ("[12:30]", "750"),
+              "hex": ("[0x1f]", "31"), "nil": ("[~]", "None"), "nested": ("[[a]]", "['a']")}
+    for name, (value, _coerced) in shapes.items():
+        write_page(corpus.brain_md_dir, f"general/{name}.md", {"title": name, "acl": value}, "body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    for name, (_, coerced) in shapes.items():
+        acl = index.get_page(conn, f"general/{name}.md")["acl"]
+        assert acl == "", name                             # unreadable, not renamed
+        assert not index.visible(acl, {coerced}), f"{name}: audience {coerced!r} was never granted"
 
 
 def test_a_comma_inside_a_label_cannot_widen_access(corpus):

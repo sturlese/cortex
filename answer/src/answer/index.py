@@ -54,8 +54,12 @@ def connect(state_dir: str) -> sqlite3.Connection:
         # comma-bearing label) holds NULL — open — for a page that carries an ACL. refresh re-reads
         # a page only when its mtime/size changed, so without this those rows would be served open
         # for the life of the index. Force a re-encode by invalidating the cached stat, and close
-        # them until it happens rather than after: unknown is not open. Unrestricted clients are
-        # unaffected either way (visible('', None) is True), so nothing goes dark.
+        # them until it happens rather than after: unknown is not open. Note this closes EVERY page
+        # to scoped clients until the next refresh completes, including pages whose ACL was fine —
+        # AnswerService runs refresh() immediately after connect(), and unrestricted clients are
+        # unaffected (visible('', None) is True), but a caller that connects without refreshing
+        # serves nothing to a scoped client. If the UPDATE cannot run (another process holds a write
+        # lock) connect() raises rather than proceeding: no service beats a leaky one.
         with conn:
             conn.execute("UPDATE pages SET acl = '', mtime = -1")
             conn.execute("PRAGMA user_version = 2")
@@ -74,10 +78,14 @@ def visible(acl: str | None, audiences: set[str] | None) -> bool:
 
 
 _FM_BLOCK_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.S)
+# The page OPENS a frontmatter block: `---` on its own first line. A leading BOM (editors and
+# Windows tooling add one invisibly) and leading blank lines do not change the author's intent.
+_FM_OPEN_RE = re.compile(r"^﻿?\s*---[ \t]*\r?\n")
 
 
 def split_frontmatter(text: str) -> tuple[dict, str]:
     """(frontmatter dict, body); tolerant — an unparseable page indexes as body-only."""
+    text = text.lstrip("﻿")        # a BOM is encoding noise, not content: never let it hide an acl
     if text.startswith("---"):
         m = _FM_BLOCK_RE.match(text)
         if m:
@@ -101,15 +109,26 @@ def _label_ok(label) -> bool:
     vanish in the round-trip. The pipeline's acl._check_labels rejects exactly these on the write
     side; the index re-derives the same encoding from page text, so it must reject them too rather
     than trust that whoever wrote the page ran that validation."""
-    return not isinstance(label, bool) and "," not in str(label) and bool(str(label).strip())
+    # `isinstance(label, str)`, not `str(label)`: coercing would RENAME the label rather than reject
+    # it, and a renamed label is grantable. YAML 1.1 reads `acl: [010]` as the int 8 and `[12:30]` as
+    # 750, so str() would index audiences "8" and "750" — labels nobody granted, which is the widening
+    # this predicate exists to stop. It also collided `[~]` with `["None"]` and `[1.50]` with `[1.5]`.
+    # Nothing the pipeline writes is affected: clean.page._yaml emits a scalar plain only when it
+    # round-trips as the identical string, so every label it writes reads back as a str.
+    return isinstance(label, str) and "," not in label and bool(label.strip())
 
 
 def carries_frontmatter_block(text: str) -> bool:
-    """True when the page OPENS a frontmatter block, whether or not it parses — the distinction
-    split_frontmatter throws away (both cases give {}). refresh needs it to encode the acl: a page
-    with no block carries no ACL and is open; a page whose block is unreadable has an ACL nobody
-    can read, and must not be mistaken for the first case."""
-    return bool(text.startswith("---") and _FM_BLOCK_RE.match(text))
+    """True when the page OPENS a frontmatter block, whether or not that block parses or is even
+    closed — the distinction split_frontmatter throws away (both cases give {}). refresh needs it to
+    encode the acl: a page with no block carries no ACL and is open, while a page whose block we
+    could not read has an ACL nobody can read and must not be mistaken for the first case.
+
+    It deliberately does NOT require the closing `---`. Requiring it meant a page carrying
+    `acl: [finance]` inside a block that is unclosed, truncated mid-write, or ended with YAML's
+    `...` was indexed as "no ACL" — open to everyone. Same for a BOM or a leading blank line before
+    the opener, which is why those are tolerated here and in split_frontmatter."""
+    return bool(_FM_OPEN_RE.match(text))
 
 
 def _mentions_text(fm: dict) -> str:
