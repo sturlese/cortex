@@ -64,12 +64,21 @@ class AnswerService:
                 best = m
         return best
 
-    def current_metric_rows(self, metric, entity=None, period=None) -> list[dict]:
-        """Metric rows with current-truth preference: rows from superseded pages are dropped
-        when a non-superseded row for the same (metric, entity, period) exists."""
-        rows = self.query_metrics(metric, entity, period, limit=100)
-        current = [r for r in rows if not r["from_superseded_page"]]
-        return current or rows
+    def current_metric_rows(self, metric, entity=None, period=None, limit: int = 100) -> list[dict]:
+        """Metric rows with current-truth preference: rows from superseded pages are dropped when a
+        non-superseded row for the same query exists.
+
+        The drop happens in the QUERY, not after it. Capping first and dropping afterwards meant
+        enough superseded rows sorting ahead consumed the whole cap, `current` came back empty, and
+        the `or rows` fallback then served 100 rows of a stale figure while the current one sat in
+        the store unreached — confidently wrong numbers. Only when there is genuinely nothing
+        current do we fall back, and those rows stay flagged."""
+        superseded = index.superseded_paths(self.conn)
+        rows = metrics.query_metrics(self.settings.facts_dir, metric, entity, period, limit,
+                                     audiences=self.audiences, exclude_pages=superseded)
+        if rows:
+            return metrics.annotate_superseded(rows, superseded)
+        return self.query_metrics(metric, entity, period, limit=limit)
 
     # ── textual renderings (what the agent's tools return) ──────────────────
     def search_text(self, query: str) -> str:
@@ -104,13 +113,32 @@ class AnswerService:
 
     def metrics_text(self, metric=None, entity=None, period=None,
                      ctx: SynthesisContext | None = None) -> str:
-        rows = self.query_metrics(metric, entity, period)
+        # This rendering deliberately shows superseded rows too, flagged
+        # (test_metrics_text_marks_superseded_rows) — but `rows[:30]` over a single capped query let
+        # stale rows fill the cap so the current figure never appeared at all. Select current rows
+        # first so they cannot be crowded out, let stale ones fill the remainder, THEN restore the
+        # global order for display: the point of showing both is that a conflicting pair reads as a
+        # pair, which a current-block-then-stale-block layout destroys.
+        # Note the limit: with 30 or more CURRENT rows matching, no stale row is shown at all (and
+        # that page does not reach ctx.read_paths). Nothing stale is served, which is the safe
+        # direction, but history is then only reachable through search/read_page.
+        superseded = index.superseded_paths(self.conn)
+        current = metrics.query_metrics(self.settings.facts_dir, metric, entity, period, 30,
+                                        audiences=self.audiences, exclude_pages=superseded)
+        rest = metrics.query_metrics(self.settings.facts_dir, metric, entity, period, 30,
+                                     audiences=self.audiences)
+        seen = {(r["page_path"], r["source_ref"]) for r in current}
+        rows = (metrics.annotate_superseded(current, superseded)
+                + [r for r in metrics.annotate_superseded(rest, superseded)
+                   if (r["page_path"], r["source_ref"]) not in seen])[:30]
+        rows.sort(key=lambda r: (r["entity"] or "", r["metric"] or "",
+                                 r["period"] or "", r["source_ref"] or ""))
         if not rows:
             known = metrics.known_metrics(self.settings.facts_dir, entity, self.audiences)
             return ("no observations for that query. known metrics"
                     + (f" for {entity}" if entity else "") + f": {', '.join(known) or '(none)'}")
         lines = []
-        for r in rows[:30]:
+        for r in rows:                                   # already selected and capped above
             note = " [from a SUPERSEDED page — prefer current]" if r["from_superseded_page"] else ""
             if ctx is not None and r.get("page_path"):
                 ctx.read_paths.add(r["page_path"])

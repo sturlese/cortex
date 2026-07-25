@@ -92,6 +92,44 @@ def test_unreadable_frontmatter_is_not_served_as_open(tmp_path, corpus):
     assert index.get_page(conn, "general/plain.md")["acl"] is None
 
 
+def test_superseded_pages_do_not_starve_a_current_truth_search(tmp_path, corpus):
+    """`include_superseded=False` was applied AFTER the candidate pool was capped, so superseded
+    pages consumed slots and could crowd the current version out of the pool entirely — zero hits
+    while a current matching page exists. Same defect shape as the ACL cap-then-filter: a row that
+    the caller has excluded must not occupy a candidate slot."""
+    for i in range(45):                      # rank ahead by repeating the query terms
+        write_page(corpus.brain_md_dir, f"entities/acme/w{i}.md",
+                   {"title": f"widget detail {i}", "superseded_by": "drive:NEWER"},
+                   "widget detail widget detail widget detail body")
+    write_page(corpus.brain_md_dir, "general/widget-current.md", {"title": "notes"},
+               "widget detail appears once here")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    hits = retrieve.search(conn, "widget detail", include_superseded=False)
+    assert [h["path"] for h in hits] == ["general/widget-current.md"]     # today: []
+    # and with superseded included, the pool is unchanged
+    assert len(retrieve.search(conn, "widget detail", k=100)) == 40
+
+
+def test_a_null_superseded_by_counts_as_current_on_both_halves(corpus):
+    """`index.superseded_paths` tests `superseded_by != ''`, which excludes NULL — so it treats a
+    NULL as CURRENT, and metrics' `page_path IS NULL` branch reaches the same conclusion for a row
+    with no page. The search-side filter has to agree: a bare `= ''` would call that same page
+    superseded, leaving two halves of one filter disagreeing about NULL. `index.refresh` writes ''
+    rather than NULL so this is not reachable through it today; pinned anyway, because mirrored
+    halves drifting on an edge value is precisely how the ACL bugs in this package happened."""
+    write_page(corpus.brain_md_dir, "general/nullsup.md", {"title": "widget nullsup"},
+               "widget detail body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    conn.execute("UPDATE pages SET superseded_by = NULL WHERE path = 'general/nullsup.md'")
+    conn.commit()
+
+    assert "general/nullsup.md" not in index.superseded_paths(conn)      # current, per that half
+    hits = retrieve.search(conn, "widget nullsup detail", include_superseded=False)
+    assert any(h["path"] == "general/nullsup.md" for h in hits)          # ...and per this one
+
+
 def test_search_demotes_superseded_and_prefers_current(service):
     hits = service.search("globex quarterly report revenue")
     paths = [h["path"] for h in hits]
