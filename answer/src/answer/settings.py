@@ -27,12 +27,18 @@ class Settings:
     def from_env(cls) -> "Settings":
         aud = os.environ.get("ANSWER_AUDIENCES", "").strip()
         if aud and not _labels(aud):
-            # Set but yielding zero labels (",", " , ") — almost always a template rendering an empty
-            # list. Collapsing that to "no scope" served the whole corpus to a client the operator
-            # believed was scoped. ADR 010: a malformed access-control config errors loudly, because
-            # silently-open is the one failure mode it must not have.
+            # A value carrying separators but no labels (",", " , "). Collapsing that to "no scope"
+            # served the whole corpus to a client the operator believed was scoped. ADR 010: a
+            # malformed access-control config errors loudly, because silently-open is the one
+            # failure mode it must not have.
+            #
+            # Blank stays unrestricted deliberately, NOT because it is indistinguishable from unset
+            # (os.environ would tell us): compose passes ANSWER_AUDIENCES=${ANSWER_AUDIENCES:-},
+            # so the default stack always sets it to "". Raising on blank would make an
+            # unconfigured deployment refuse to boot, and "empty = unrestricted" is the documented
+            # contract. So blank is the one implicit path to an open corpus, by design.
             raise RuntimeError(f"invalid ANSWER_AUDIENCES: {aud!r} (no audience labels; "
-                               "unset it for an unrestricted instance)")
+                               "leave it empty for an unrestricted instance)")
         return cls(
             brain_md_dir=os.environ.get("BRAIN_MD_DIR", cls.brain_md_dir),
             facts_dir=os.environ.get("BRAIN_FACTS_DIR", cls.facts_dir),

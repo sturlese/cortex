@@ -21,6 +21,11 @@ services:
       ANSWER_MODEL: ${ANSWER_MODEL:-gpt-5.4}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANSWER_BEARER_TOKEN: ${ANSWER_BEARER_TOKEN:-}
+      # This deployment's ACL scope. Empty (the default) = unrestricted, so the ACL layer does
+      # nothing until you set it: one instance = one scope, so run one stack per audience set.
+      # A value carrying separators but no labels ("," ) is refused at startup rather than
+      # silently serving the whole corpus.
+      ANSWER_AUDIENCES: ${ANSWER_AUDIENCES:-}
     volumes:
       - brain-md:/data/brain-md:ro               # SHARED with the pipeline stack (single writer: clean)
       - brain-facts:/data/brain-facts:ro         # the verified facts store

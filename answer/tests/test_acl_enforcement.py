@@ -37,6 +37,9 @@ def test_empty_acl_page_is_hidden_from_scoped_clients(corpus):
 
 
 def _scoped(corpus, *audiences):
+    # `or None` on purpose here and nowhere else: _scoped() with no labels means "unrestricted" for
+    # readability in these tests. Production code must test the scope with `is None` — see
+    # test_an_explicitly_empty_scope_is_empty_not_unrestricted for why () is not None.
     return AnswerService(dataclasses.replace(corpus, audiences=audiences or None))
 
 
@@ -234,7 +237,12 @@ def test_an_explicitly_empty_scope_is_empty_not_unrestricted(corpus):
     _restricted_corpus(corpus)
     empty = AnswerService(dataclasses.replace(corpus, audiences=()))
     assert empty.audiences == set()                                   # not None
-    assert empty.get_page("entities/acme/payroll.md") is None         # labeled -> hidden
-    assert not empty.query_metrics("total-compensation")
+    assert [n for n, probe in _LEAK_PROBES.items() if probe(empty)] == []   # sees no labeled content
     assert empty.get_page("entities/initech/kpi.md") is not None      # unlabeled -> still open
     assert empty.query_metrics("arr-usd")
+
+    # ...and the converse must NOT drift: None is unrestricted, and collapsing it into an empty
+    # scope would take every open deployment dark while still satisfying the assertions above.
+    unrestricted = AnswerService(dataclasses.replace(corpus, audiences=None))
+    assert unrestricted.audiences is None
+    assert [n for n, probe in _LEAK_PROBES.items() if not probe(unrestricted)] == []

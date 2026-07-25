@@ -50,9 +50,11 @@ Pages carry `acl:` audience labels (resolved deterministically at ingestion — 
 intersection of their members'. The service filters **everything** through the deployment's
 `ANSWER_AUDIENCES` scope: out-of-scope pages don't appear in search, can't be read, their
 numbers don't resolve, and even entity existence is scoped. Unlabeled content stays open;
-an unrestricted instance (no `ANSWER_AUDIENCES`) sees everything. Being unrestricted is only ever
-explicit: a scope set to a value carrying no labels is a startup error, and a scope holding an
-*empty* label set sees open content only — an empty scope is not the absence of one.
+an unrestricted instance (empty `ANSWER_AUDIENCES` — the compose default, so the ACL layer does
+nothing until you set it) sees everything. There is exactly **one** path to an open corpus: a blank
+scope. A value carrying separators but no labels (`","`) is a startup error rather than a silently
+open server, and a scope holding an *empty* label set sees open content only — an empty scope is not
+the absence of one.
 
 ## Trust model
 
