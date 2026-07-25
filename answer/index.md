@@ -40,7 +40,9 @@ MCP tools exposed: `ask_brain`, `search_brain`, `query_metrics`, `read_page`.
 
 - `AnswerService` for any new transport or client — do not reimplement enforcement in an adapter.
 - `service.get_page` / `index.visible` — the ACL scope (`ANSWER_AUDIENCES`) must filter **every**
-  read path; out-of-scope pages must look non-existent, not forbidden.
+  read path; out-of-scope pages must look non-existent, not forbidden. Test the scope with
+  `is None`, never truthiness: `audiences=()` is a client holding no labels (open content only),
+  and reading it as "unrestricted" hands over the whole corpus.
 - `service.current_metric_rows` — current-truth preference over superseded rows.
 - `service.match_metric` — tolerant metric-id matching ("the ARR (usd)" → `arr-usd`).
 - `numbers.unverified_figures` — the shared figure check; do not write a second number parser.

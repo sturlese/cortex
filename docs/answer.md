@@ -41,7 +41,7 @@ cd answer && docker compose up -d
 | `ANSWER_LLM` | `openai` | `fake` = offline deterministic answering (demo/CI) |
 | `ANSWER_MODEL` | `gpt-5.4` | synthesizer model (`OPENAI_API_KEY` required for `openai`) |
 | `ANSWER_BEARER_TOKEN` | — | when set, the HTTP transport requires `Authorization: Bearer <token>` |
-| `ANSWER_AUDIENCES` | — | this deployment's ACL scope (comma list). Empty = unrestricted. One instance = one scope; run one instance per audience set for multi-tenant |
+| `ANSWER_AUDIENCES` | — | this deployment's ACL scope (comma list). Unset/blank = unrestricted; a value that yields **no** labels (`","`) is refused at startup rather than silently opening the corpus. One instance = one scope; run one instance per audience set for multi-tenant |
 
 ## Access control
 
@@ -50,7 +50,9 @@ Pages carry `acl:` audience labels (resolved deterministically at ingestion — 
 intersection of their members'. The service filters **everything** through the deployment's
 `ANSWER_AUDIENCES` scope: out-of-scope pages don't appear in search, can't be read, their
 numbers don't resolve, and even entity existence is scoped. Unlabeled content stays open;
-an unrestricted instance (no `ANSWER_AUDIENCES`) sees everything.
+an unrestricted instance (no `ANSWER_AUDIENCES`) sees everything. Being unrestricted is only ever
+explicit: a scope set to a value carrying no labels is a startup error, and a scope holding an
+*empty* label set sees open content only — an empty scope is not the absence of one.
 
 ## Trust model
 

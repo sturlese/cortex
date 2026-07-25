@@ -19,8 +19,10 @@ PAGE_EXCERPT = 6000
 class AnswerService:
     def __init__(self, settings: Settings):
         self.settings = settings
-        # the deployment's ACL scope: every read path filters through it (None = unrestricted)
-        self.audiences = set(settings.audiences) if settings.audiences else None
+        # the deployment's ACL scope: every read path filters through it. `is not None`, not
+        # truthiness — an EMPTY tuple is a client holding no labels (open content only), and reading
+        # it as "unrestricted" would serve that client the entire corpus.
+        self.audiences = set(settings.audiences) if settings.audiences is not None else None
         self.conn = index.connect(settings.state_dir)
         self.refresh()
 
