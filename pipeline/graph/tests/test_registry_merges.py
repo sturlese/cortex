@@ -143,6 +143,62 @@ def test_apply_merge_leaves_unrelated_entities_alone(tmp_path):
     assert again.entities["initech"]["aliases"] == ["Initech SL"]
 
 
+def test_apply_merge_does_not_delete_an_entity_that_only_shares_an_alias(tmp_path):
+    """The registry is human-owned (ADR 008), so removing a record needs more warrant than one
+    shared string. Two genuinely distinct entities can carry the same short alias — merging one must
+    retarget that alias, NOT swallow the other's id, display name, type and every other alias.
+
+    A first version of this fix absorbed on any overlap: merging "Acme Foods" deleted a distinct
+    "Acme Bank" (type person) and left ABG resolving to a food company."""
+    reg = Registry()
+    reg.entities["acme-foods"] = {"name": "Acme Foods", "type": "company",
+                                  "aliases": ["Acme Food Group"]}
+    reg.entities["acme-bank"] = {"name": "Acme Bank", "type": "person", "aliases": ["Acme", "ABG"]}
+    notes = []
+    apply_merge(reg, "acme-foods", "Acme Foods", "company", ["Acme", "Acme Foods"], log=notes.append)
+
+    assert sorted(reg.entities) == ["acme-bank", "acme-foods"]     # nothing deleted
+    assert reg.entities["acme-bank"]["type"] == "person"           # ...and nothing rewritten
+    assert reg.canonical_id("ABG") == "acme-bank"
+    assert reg.canonical_id("Acme Bank") == "acme-bank"
+    assert reg.canonical_id("Acme") == "acme-foods"                # only the contested alias moved
+    assert "Acme" not in reg.entities["acme-bank"]["aliases"]
+    assert _alias_conflicts(reg) == []                             # and the contradiction is gone
+    assert notes and "moved from 'acme-bank'" in notes[0]           # never silently
+
+
+def test_apply_merge_absorbing_nothing_deletes_nothing(tmp_path):
+    """`claimed` includes the canonical's own id and name, so an empty `absorbs` list still overlaps
+    anything aliased to that name. A merge that absorbs nothing must not remove a record."""
+    reg = Registry()
+    reg.entities["acme"] = {"name": "Acme", "type": "company", "aliases": []}
+    reg.entities["acme-bank"] = {"name": "Acme Bank", "type": "person", "aliases": ["Acme"]}
+    apply_merge(reg, "acme", "Acme", "company", [])
+    assert sorted(reg.entities) == ["acme", "acme-bank"]
+    # ...but the contradiction must still be resolved: the canonical's OWN name has to count as
+    # claimed, or two entities keep claiming it and the load order decides again.
+    assert reg.canonical_id("Acme") == "acme"
+    assert _alias_conflicts(reg) == []
+
+
+def test_apply_merge_does_not_inherit_names_it_did_not_claim(tmp_path):
+    """Absorbing an entity wholesale made the canonical inherit that entity's OTHER aliases — which
+    a third entity could also claim, recreating the very cid-sort-order contradiction one hop out.
+    Retargeting only the contested alias keeps the merge's footprint to what it claimed."""
+    reg = Registry()
+    reg.entities["bravo-group"] = {"name": "Bravo Group", "type": "organization",
+                                   "aliases": ["Shared One", "Bridge Name"]}
+    reg.entities["zetera-holdings"] = {"name": "Zetera Holdings", "type": "organization",
+                                       "aliases": ["Bridge Name", "Bravo Group"]}
+    apply_merge(reg, "bravo", "Bravo", "organization", ["Shared One"])
+    path = str(tmp_path / "entity-registry.json")
+    save_registry(path, reg)
+    again = load_registry(path)
+
+    assert again.canonical_id("Shared One") == "bravo"          # the merge survives the reload
+    assert again.entities["bravo"]["aliases"] == ["Shared One"]  # and claimed nothing else
+
+
 def _alias_conflicts(reg):
     """Normalized keys claimed by more than one entity — the state that makes a registry's meaning
     depend on cid sort order at load time."""
