@@ -69,6 +69,56 @@ def test_superseded_rows_do_not_starve_current_truth(corpus):
     assert "SUPERSEDED" in svc.metrics_text("only-old", "zeta")
 
 
+def test_metrics_text_keeps_a_conflicting_pair_adjacent(service):
+    """Showing superseded rows only helps if a conflicting pair reads as a pair, so the rendering
+    keeps the global (entity, metric, period, source_ref) order. Selecting current rows first to
+    protect them from the cap must not leave the output as a current-block-then-stale-block list —
+    the stale globex figure belongs next to the current one, not seven unrelated rows away."""
+    lines = service.metrics_text(None, None, None).splitlines()
+    globex = [i for i, ln in enumerate(lines) if "globex · revenue-impact" in ln]
+    assert len(globex) == 2 and globex[1] - globex[0] == 1, lines
+    assert "1.3M" in lines[globex[0]] and "1.2M" in lines[globex[1]]
+    assert "SUPERSEDED" in lines[globex[1]]
+
+
+def test_current_truth_filter_keeps_rows_that_carry_no_page(corpus):
+    """A fact row with no page_path has no page to be superseded, so the current-truth exclusion must
+    keep it — which is what annotate_superseded already concludes (`page_path and page_path in …`).
+    The two agreeing is the point; a `NOT IN` without the NULL branch would silently drop orphans."""
+    from tests.conftest import add_fact, write_page
+
+    from answer.service import AnswerService
+    write_page(corpus.brain_md_dir, "entities/orph/old.md",
+               {"title": "o", "entity": "orph", "superseded_by": "drive:NEW"}, "body")
+    add_fact(corpus.facts_dir, file_id="ORPH", page_path=None, entity="orph", metric="orph-m",
+             metric_raw="M", value_raw="7", value_num=7.0, source_ref="n1")
+    add_fact(corpus.facts_dir, file_id="STALE", page_path="entities/orph/old.md", entity="orph",
+             metric="orph-m", metric_raw="M", value_raw="1", value_num=1.0, source_ref="n0")
+    svc = AnswerService(corpus)
+    rows = svc.current_metric_rows("orph-m", "orph")
+    assert [r["value_raw"] for r in rows] == ["7"]            # the orphan survives, the stale one goes
+    assert rows[0]["from_superseded_page"] is False
+
+
+def test_current_metric_rows_honours_its_limit_on_both_paths(corpus):
+    """Both the filtered query and the no-current fallback must respect `limit` — the fallback is a
+    second query and could easily have kept a hardcoded one."""
+    from tests.conftest import add_fact, write_page
+
+    from answer.service import AnswerService
+    write_page(corpus.brain_md_dir, "entities/lim/old.md",
+               {"title": "l", "entity": "lim", "superseded_by": "drive:NEW"}, "body")
+    for i in range(8):
+        add_fact(corpus.facts_dir, file_id=f"CU{i}", page_path=None, entity="lim", metric="lim-cur",
+                 metric_raw="M", value_raw=str(i), value_num=float(i), source_ref=f"c{i}")
+        add_fact(corpus.facts_dir, file_id=f"ST{i}", page_path="entities/lim/old.md", entity="lim",
+                 metric="lim-old", metric_raw="M", value_raw=str(i), value_num=float(i), source_ref=f"s{i}")
+    svc = AnswerService(corpus)
+    assert len(svc.current_metric_rows("lim-cur", "lim", limit=3)) == 3      # filtered path
+    fallback = svc.current_metric_rows("lim-old", "lim", limit=3)            # no current rows at all
+    assert len(fallback) == 3 and all(r["from_superseded_page"] for r in fallback)
+
+
 def test_prose_question_cites_top_page(service):
     res = _ask(service, "what are the roadmap themes?")
     assert res["refused"] is False

@@ -111,6 +111,25 @@ def test_superseded_pages_do_not_starve_a_current_truth_search(tmp_path, corpus)
     assert len(retrieve.search(conn, "widget detail", k=100)) == 40
 
 
+def test_a_null_superseded_by_counts_as_current_on_both_halves(corpus):
+    """`index.superseded_paths` tests `superseded_by != ''`, which excludes NULL — so it treats a
+    NULL as CURRENT, and metrics' `page_path IS NULL` branch reaches the same conclusion for a row
+    with no page. The search-side filter has to agree: a bare `= ''` would call that same page
+    superseded, leaving two halves of one filter disagreeing about NULL. `index.refresh` writes ''
+    rather than NULL so this is not reachable through it today; pinned anyway, because mirrored
+    halves drifting on an edge value is precisely how the ACL bugs in this package happened."""
+    write_page(corpus.brain_md_dir, "general/nullsup.md", {"title": "widget nullsup"},
+               "widget detail body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    conn.execute("UPDATE pages SET superseded_by = NULL WHERE path = 'general/nullsup.md'")
+    conn.commit()
+
+    assert "general/nullsup.md" not in index.superseded_paths(conn)      # current, per that half
+    hits = retrieve.search(conn, "widget nullsup detail", include_superseded=False)
+    assert any(h["path"] == "general/nullsup.md" for h in hits)          # ...and per this one
+
+
 def test_search_demotes_superseded_and_prefers_current(service):
     hits = service.search("globex quarterly report revenue")
     paths = [h["path"] for h in hits]

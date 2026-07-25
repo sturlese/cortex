@@ -115,22 +115,30 @@ class AnswerService:
                      ctx: SynthesisContext | None = None) -> str:
         # This rendering deliberately shows superseded rows too, flagged
         # (test_metrics_text_marks_superseded_rows) — but `rows[:30]` over a single capped query let
-        # stale rows fill the cap and the current figure never appeared at all. So fetch the current
-        # rows first and let stale ones fill what is left: both are shown, and current truth cannot
-        # be crowded out of either the cap or the slice.
+        # stale rows fill the cap so the current figure never appeared at all. Select current rows
+        # first so they cannot be crowded out, let stale ones fill the remainder, THEN restore the
+        # global order for display: the point of showing both is that a conflicting pair reads as a
+        # pair, which a current-block-then-stale-block layout destroys.
+        # Note the limit: with 30 or more CURRENT rows matching, no stale row is shown at all (and
+        # that page does not reach ctx.read_paths). Nothing stale is served, which is the safe
+        # direction, but history is then only reachable through search/read_page.
         superseded = index.superseded_paths(self.conn)
         current = metrics.query_metrics(self.settings.facts_dir, metric, entity, period, 30,
-                                       audiences=self.audiences, exclude_pages=superseded)
-        rest = self.query_metrics(metric, entity, period, limit=30)
+                                        audiences=self.audiences, exclude_pages=superseded)
+        rest = metrics.query_metrics(self.settings.facts_dir, metric, entity, period, 30,
+                                     audiences=self.audiences)
         seen = {(r["page_path"], r["source_ref"]) for r in current}
-        rows = metrics.annotate_superseded(current, superseded) + [
-            r for r in rest if (r["page_path"], r["source_ref"]) not in seen]
+        rows = (metrics.annotate_superseded(current, superseded)
+                + [r for r in metrics.annotate_superseded(rest, superseded)
+                   if (r["page_path"], r["source_ref"]) not in seen])[:30]
+        rows.sort(key=lambda r: (r["entity"] or "", r["metric"] or "",
+                                 r["period"] or "", r["source_ref"] or ""))
         if not rows:
             known = metrics.known_metrics(self.settings.facts_dir, entity, self.audiences)
             return ("no observations for that query. known metrics"
                     + (f" for {entity}" if entity else "") + f": {', '.join(known) or '(none)'}")
         lines = []
-        for r in rows[:30]:
+        for r in rows:                                   # already selected and capped above
             note = " [from a SUPERSEDED page — prefer current]" if r["from_superseded_page"] else ""
             if ctx is not None and r.get("page_path"):
                 ctx.read_paths.add(r["page_path"])

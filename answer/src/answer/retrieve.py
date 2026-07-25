@@ -65,7 +65,12 @@ def search(conn: sqlite3.Connection, query: str, k: int = TOP_K,
     # page the caller has excluded must not occupy a candidate slot. Filtered after the cap, enough
     # superseded versions ranking ahead crowded the current one out of the pool entirely — zero hits
     # while a current matching page existed.
-    current_sql = "" if include_superseded else " AND p.superseded_by = ''"
+    # COALESCE, not a bare `= ''`: index.superseded_paths tests `superseded_by != ''`, which excludes
+    # NULL, so it treats a NULL as CURRENT — and metrics' `page_path IS NULL` branch does too. A bare
+    # `= ''` here would treat the same NULL as superseded, i.e. two halves of one filter disagreeing
+    # about NULL. Not reachable through index.refresh (it writes '' rather than NULL), but this repo
+    # pins its mirrored halves against each other rather than relying on that.
+    current_sql = "" if include_superseded else " AND COALESCE(p.superseded_by, '') = ''"
     rows = conn.execute(
         "SELECT p.*, bm25(pages_fts) AS bm25 FROM pages_fts"
         " JOIN pages p ON p.rowid = pages_fts.rowid"
