@@ -261,6 +261,43 @@ def test_dedup_never_points_a_duplicate_at_changed_content(env, monkeypatch):
     assert asyncio.run(run_once(env.cfg))["pending"] == 0
 
 
+def test_dedup_converges_when_a_canonical_of_several_duplicates_changes(env, monkeypatch):
+    """Convergence is what makes re-pending safe. Dedup exists to avoid LLM calls, so a fix that
+    re-pends duplicates it should not costs money on every pass forever. With THREE identical files,
+    editing the canonical must promote exactly ONE of the two duplicates and re-dedup the other onto
+    it — not give both pages, not leave both lost, and not oscillate. Reverting the canonical's bytes
+    must settle too."""
+    processed = []
+
+    async def ok(doc, *a, **kw):
+        processed.append(doc["fileId"])
+        return {"fileId": doc["fileId"], "skipped": False, "method": "text",
+                "path": f"general/{doc['fileId']}.md", "usage": {}}
+
+    monkeypatch.setattr(clean_main, "process_one", ok)
+    (env.raw / "b.md").write_text("doc a")
+    inv = json.loads((env.raw / "_state.json").read_text())
+    inv["files"]["C"] = {"name": "c.md", "localPath": "c.md", "drivePath": "/X/c.md"}
+    (env.raw / "_state.json").write_text(json.dumps(inv))
+    (env.raw / "c.md").write_text("doc a")            # A, B and C all identical
+    asyncio.run(run_once(env.cfg))
+    files = _state_of(env)["files"]
+    assert (files["B"]["status"], files["C"]["status"]) == ("duplicate", "duplicate")
+
+    (env.raw / "a.md").write_text("doc a EDITED")     # the canonical moves on
+    asyncio.run(run_once(env.cfg))
+    files = _state_of(env)["files"]
+    holders = [f for f in ("A", "B", "C") if files[f]["status"] == "processed"]
+    assert holders == ["A", "B"], files                # exactly one duplicate promoted
+    assert files["C"]["duplicateOf"] == "B"            # the other re-dedups onto it
+    assert asyncio.run(run_once(env.cfg))["pending"] == 0          # converged
+
+    (env.raw / "a.md").write_text("doc a")            # ...and reverting settles as well
+    asyncio.run(run_once(env.cfg))
+    assert _state_of(env)["files"]["A"]["duplicateOf"] == "B"
+    assert asyncio.run(run_once(env.cfg))["pending"] == 0
+
+
 def test_dedup_does_not_seed_the_index_with_a_changed_docs_old_hash(env, monkeypatch):
     """The other half, one pass earlier: a doc pending BECAUSE its hash changed must not seed the
     canonical index with the hash it no longer has. Otherwise a new doc carrying those old bytes is
