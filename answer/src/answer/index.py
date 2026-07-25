@@ -128,18 +128,22 @@ def split_frontmatter(text: str) -> tuple[dict, str]:
 
 
 def _label_ok(label) -> bool:
-    """Whether an audience label survives this index's CSV encoding. A comma would split one label
-    into two audiences at enforcement time — silently WIDENING access — and a blank label would
-    vanish in the round-trip. The pipeline's acl._check_labels rejects exactly these on the write
-    side; the index re-derives the same encoding from page text, so it must reject them too rather
-    than trust that whoever wrote the page ran that validation."""
+    """Whether an audience label is representable AND grantable here. A comma would split one label
+    into two audiences at enforcement time — silently WIDENING access — a blank label would vanish
+    in the round-trip, and a label with surrounding whitespace could never be granted at all, since
+    a client's scope is stripped (settings._labels) while enforcement compares exactly (visible).
+    The pipeline's acl._check_labels rejects those three STRING shapes on the write side; the index
+    re-derives the same encoding from page text, so it must reject them too rather than trust that
+    whoever wrote the page ran that validation. eval_contract_parity holds those two halves together.
+    Non-str input is where the halves diverge on purpose — see the next paragraph."""
     # `isinstance(label, str)`, not `str(label)`: coercing would RENAME the label rather than reject
     # it, and a renamed label is grantable. YAML 1.1 reads `acl: [010]` as the int 8 and `[12:30]` as
     # 750, so str() would index audiences "8" and "750" — labels nobody granted, which is the widening
     # this predicate exists to stop. It also collided `[~]` with `["None"]` and `[1.50]` with `[1.5]`.
     # Nothing the pipeline writes is affected: clean.page._yaml emits a scalar plain only when it
     # round-trips as the identical string, so every label it writes reads back as a str.
-    return isinstance(label, str) and "," not in label and bool(label.strip())
+    return (isinstance(label, str) and "," not in label
+            and bool(label.strip()) and label == label.strip())
 
 
 def carries_frontmatter_block(text: str) -> bool:

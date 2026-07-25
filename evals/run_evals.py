@@ -272,6 +272,32 @@ def eval_contract_parity(facts_dir: Path) -> None:
     metric("contract: ACL visibility parity (clean vs answer)",
            f"{len(cases) - len(mismatches)}/{len(cases)} cases", not mismatches)
 
+    # Label VALIDITY is the second half of the same contract, and it was only a promise in a
+    # docstring: the config validator (write side) and the index's predicate (read side, which
+    # re-derives the rule from page text) must accept and reject the same labels. They disagreed on
+    # whitespace — the config minted " finance ", which no stripped client scope can ever match, so
+    # the page reached nobody. Anything one side accepts and the other drops is a page whose audience
+    # silently differs from what the ACL file says.
+    from answer.index import _label_ok
+    from clean.acl import _check_labels
+    # STRING labels only, and that scope is the honest one: the two halves diverge on purpose for
+    # non-str input. The index refuses to coerce (str() would RENAME a label, and a renamed label is
+    # grantable — see _label_ok), while the config validates str(a). That divergence is a known
+    # separate defect on the config side (it also stores rules' labels raw, so a numeric label
+    # TypeErrors in worker.py's ",".join) and is deliberately NOT what this clause measures.
+    labels = ["sales", "board members", "sales,leadership", "", "   ", " finance ", "finance ",
+              " finance", "\tfinance", "finance\n", "ñ-finance", "0", "​zwsp", "a b",
+              " nbsp", "　ideographic"]
+    def _config_ok(label) -> bool:
+        try:
+            _check_labels("<parity>", [label])
+            return True
+        except ValueError:
+            return False
+    split = [lb for lb in labels if _config_ok(lb) != _label_ok(lb)]
+    metric("contract: ACL string-label validity parity (clean vs answer)",
+           f"{len(labels) - len(split)}/{len(labels)} labels", not split)
+
     probes = [{}, {"metric": "arr-usd"}, {"metric": "ARR-USD", "entity": "  Initech "},
               {"entity": "globex"}, {"metric": "arr-usd", "period": "2026"}]
     agree = all(query_facts(str(facts_dir), limit=100, **p)

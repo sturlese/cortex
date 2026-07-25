@@ -34,8 +34,69 @@ def test_load_acl_config_rejects_labels_that_break_csv_serialization(tmp_path):
     with pytest.raises(ValueError, match="invalid audience label"):
         load_acl_config(_config(tmp_path, {
             "rules": [{"unit": "X", "audiences": ["sales,leadership"]}]}))
-    with pytest.raises(ValueError, match="invalid audience label"):
+    # the blank case must report EMPTINESS, not be swallowed by the whitespace check that follows it
+    # (which would tell the operator `did you mean ''?`) — so the order of the two checks matters
+    with pytest.raises(ValueError, match="must be non-empty"):
         load_acl_config(_config(tmp_path, {"default": ["  "], "rules": []}))
+
+
+def test_load_acl_config_rejects_labels_a_client_scope_could_never_produce(tmp_path):
+    """A whitespace-padded label is silently DEAD, and this is the mirror image of the comma case.
+
+    Enforcement compares labels exactly (`answer.index.visible` splits the CSV on ',' and
+    intersects), while a client's scope is split AND stripped (`answer.settings._labels`). So no
+    ANSWER_AUDIENCES value can ever yield " finance ": a rule granting it produces a page that
+    reaches nobody. Verified end to end before this fix — a rule whose only audience was " finance "
+    was invisible to scope {"finance"}, to {"leadership"}, and to {"finance","leadership","all"};
+    only an unrestricted client saw it, so the operator who wrote the rule got the opposite of what
+    the file said.
+
+    Rejected rather than stripped on purpose: silently normalizing would make this file mean
+    something other than what it says, and it is the access-control authority. It also hides the
+    typo the padding usually is."""
+    for label in (" finance ", "finance ", " finance", "\tfinance", "finance\n"):
+        with pytest.raises(ValueError, match="invalid audience label"):
+            load_acl_config(_config(tmp_path, {
+                "rules": [{"unit": "X", "audiences": [label]}]}))
+    with pytest.raises(ValueError, match="could never be granted"):
+        load_acl_config(_config(tmp_path, {"default": [" all "], "rules": []}))
+    # ...and the suggestion names the label the author meant
+    with pytest.raises(ValueError, match="did you mean 'finance'"):
+        load_acl_config(_config(tmp_path, {"rules": [{"unit": "X", "audiences": [" finance "]}]}))
+    # internal whitespace is legitimate and must still load
+    ok = load_acl_config(_config(tmp_path, {
+        "default": ["all"], "rules": [{"unit": "X", "audiences": ["board members"]}]}))
+    assert ok["rules"][0]["audiences"] == ["board members"]
+
+
+def test_a_rejected_acl_config_stops_before_any_work(tmp_path, monkeypatch):
+    """Validation has to happen at STARTUP, not where the pass happens to need the config.
+
+    `run_once` loads it deep in the work path — after `dedup_pending` has already deleted pages and
+    facts rows and saved state. compose runs this worker `restart: unless-stopped`, so validating
+    there would turn one bad label into a crash loop that destroys state every lap and processes
+    nothing, while an operator editing the ACL file gets no feedback at edit time (with nothing
+    pending the same invalid config even reports `pass OK` and exits 0).
+
+    So: refuse in `cli()`, with the message and no traceback."""
+    import asyncio
+
+    from clean import main as clean_main
+
+    cfg_path = _config(tmp_path, {"default": ["all"],
+                                  "rules": [{"unit": "Finance", "audiences": [" finance "]}]})
+    for k, v in {"CLEAN_ACL": cfg_path, "RAW_DIR": str(tmp_path / "raw"),
+                 "BRAIN_MD_DIR": str(tmp_path / "brain"),
+                 "CLEAN_STATE_DIR": str(tmp_path / "state")}.items():
+        monkeypatch.setenv(k, v)
+    ran = []
+    monkeypatch.setattr(asyncio, "run", lambda *a, **k: ran.append(True))
+
+    with pytest.raises(SystemExit) as ei:
+        clean_main.cli(["--once"])
+    assert "invalid audience label" in str(ei.value)
+    assert "ERROR:" in str(ei.value)
+    assert not ran, "the pass must not start with a rejected ACL config"
 
 
 def test_resolve_acl_first_match_wins(tmp_path):
