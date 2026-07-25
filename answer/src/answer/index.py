@@ -41,13 +41,24 @@ def connect(state_dir: str) -> sqlite3.Connection:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)")}
     if "acl" not in cols:
         conn.execute("ALTER TABLE pages ADD COLUMN acl TEXT")
-    if conn.execute("PRAGMA user_version").fetchone()[0] < 1:
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version < 1:
         # pre-fix indexes stored '' for BOTH "no acl" and "empty acl"; under the fixed encoding
         # '' means "empty ACL: restricted to nobody", so re-encode old rows to NULL (their
         # observed behavior: open) and let refresh re-derive the truth from the pages.
         with conn:
             conn.execute("UPDATE pages SET acl = NULL WHERE acl = ''")
             conn.execute("PRAGMA user_version = 1")
+    if version < 2:
+        # A row indexed before refresh learned to read a non-list `acl:` value (or to reject a
+        # comma-bearing label) holds NULL — open — for a page that carries an ACL. refresh re-reads
+        # a page only when its mtime/size changed, so without this those rows would be served open
+        # for the life of the index. Force a re-encode by invalidating the cached stat, and close
+        # them until it happens rather than after: unknown is not open. Unrestricted clients are
+        # unaffected either way (visible('', None) is True), so nothing goes dark.
+        with conn:
+            conn.execute("UPDATE pages SET acl = '', mtime = -1")
+            conn.execute("PRAGMA user_version = 2")
     return conn
 
 

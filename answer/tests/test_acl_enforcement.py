@@ -178,24 +178,40 @@ def test_unrestricted_service_unchanged(service):
     assert asyncio.run(service.ask("what is the arr-usd for initech in 2026-03?"))["refused"] is False
 
 
-def test_pre_fix_index_reencodes_empty_acl_as_open(tmp_path):
-    """Old indexes stored '' for pages with no acl; under the fixed encoding '' means
-    "restricted to nobody", so connect() must re-encode legacy rows to NULL (their observed
-    behavior) exactly once, without touching rows written after the migration."""
-    from answer import index
-    state = str(tmp_path / "state")
-    conn = index.connect(state)
-    conn.execute("INSERT INTO pages (path, acl) VALUES ('legacy.md', '')")
+def test_a_legacy_index_re_derives_both_acl_encodings(tmp_path, corpus):
+    """Both ACL migrations, end to end, because the value a migration leaves behind is provisional:
+    it is the state AFTER the following refresh that gets served.
+
+    v1 (#30): old indexes stored '' for a page with NO acl, and '' now means restricted-to-nobody,
+    so such a page must end up open again. v2 (this fix): a row indexed before refresh could read a
+    non-list `acl:` holds NULL — open — and refresh only re-reads a page whose mtime/size changed,
+    so the migration has to invalidate the cached stat or those rows stay open for the life of the
+    index. It closes them meanwhile (unknown is not open), and refresh then derives the truth."""
+    write_page(corpus.brain_md_dir, "general/scalar.md", {"title": "s", "acl": "finance"}, "secret body")
+    write_page(corpus.brain_md_dir, "general/noacl.md", {"title": "n"}, "open body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    # rewind to a pre-migration index: v1's legacy encoding for no-acl, v2's for an unreadable one
+    conn.execute("UPDATE pages SET acl = '' WHERE path = 'general/noacl.md'")
+    conn.execute("UPDATE pages SET acl = NULL WHERE path = 'general/scalar.md'")
     conn.execute("PRAGMA user_version = 0")
     conn.commit()
     conn.close()
-    conn = index.connect(state)                      # migration fires
-    assert conn.execute("SELECT acl FROM pages WHERE path='legacy.md'").fetchone()["acl"] is None
-    conn.execute("INSERT INTO pages (path, acl) VALUES ('empty.md', '')")
+
+    conn = index.connect(corpus.state_dir)                     # both migrations fire
+    assert conn.execute("SELECT acl FROM pages WHERE path='general/scalar.md'").fetchone()["acl"] == ""
+    index.refresh(conn, corpus.brain_md_dir)                   # ...then the truth is re-derived
+    assert index.get_page(conn, "general/noacl.md")["acl"] is None        # v1: open again
+    assert index.get_page(conn, "general/scalar.md")["acl"] == ""         # v2: nobody scoped
+    assert not index.visible(index.get_page(conn, "general/scalar.md")["acl"], {"eng"})
+
+    # neither migration may fire again: a row written afterwards keeps its value
+    conn.execute("INSERT INTO pages (path, acl) VALUES ('written-later.md', '')")
     conn.commit()
     conn.close()
-    conn = index.connect(state)                      # migration must NOT fire again
-    assert conn.execute("SELECT acl FROM pages WHERE path='empty.md'").fetchone()["acl"] == ""
+    conn = index.connect(corpus.state_dir)
+    assert conn.execute("SELECT acl FROM pages WHERE path='written-later.md'").fetchone()["acl"] == ""
+    assert conn.execute("SELECT mtime FROM pages WHERE path='general/noacl.md'").fetchone()["mtime"] > 0
 
 
 def test_an_acl_the_index_cannot_read_is_not_open(corpus):
