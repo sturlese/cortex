@@ -1,5 +1,6 @@
 """drive_fetch with explicit Config — no global monkeypatching, no env juggling.
 The gog CLI is always faked; no network, no binary."""
+import dataclasses
 import json
 
 import drive_fetch as df
@@ -318,6 +319,38 @@ def test_mass_deletion_brake_counts_only_owned_entries(sync_env):
     fake.items.clear()
     assert df.sync_once(cfg, "root")["removed"] == 0            # today: GogError "mass deletion"
     assert "slack-general-2026-01" in json.loads((tmp_path / "_state.json").read_text())["files"]
+
+
+def test_changing_the_export_format_re_downloads(sync_env):
+    """`GOOGLE_DOCS_FORMAT` is a documented knob (docs/pipeline/fetch.md, pipeline/.env.example), but
+    the skip decision only compared the remote fingerprint and "some file is at the recorded path" —
+    never whether that path is the name the CURRENT config would produce. `fingerprint` is
+    modifiedTime|size|md5, i.e. purely remote, so a LOCAL export-format change is invisible to it.
+
+    Switching md -> pdf therefore did nothing, forever: no download, no log line, no error. The
+    operator believes PDFs are flowing while clean keeps converting the old Markdown, and no recipe in
+    docs/operations/runbook.md tells you to wipe raw/ for this."""
+    cfg, tmp_path, fake = sync_env
+    fake.items.append({"id": "D", "name": "a doc", "modifiedTime": "t1", "parents": ["folder1"],
+                       "mimeType": "application/vnd.google-apps.document"})
+    df.sync_once(cfg, "root")
+    manifest = json.loads((tmp_path / "_state.json").read_text())["files"]
+    assert manifest["D"]["localPath"] == "D.md"
+    assert (tmp_path / "D.md").exists()
+    fake.downloads.clear()
+
+    stats = df.sync_once(dataclasses.replace(cfg, docs_format="pdf"), "root")
+    assert "D" in fake.downloads, "a format change must re-export"     # today: skipped, no download
+    assert (tmp_path / "D.pdf").exists()
+    manifest = json.loads((tmp_path / "_state.json").read_text())["files"]
+    assert manifest["D"]["localPath"] == "D.pdf"
+    assert not (tmp_path / "D.md").exists(), "the stale export must not linger in the mirror"
+    assert stats["errors"] == 0
+
+    # ...and it settles: the next pass with the same config re-downloads nothing
+    fake.downloads.clear()
+    stats2 = df.sync_once(dataclasses.replace(cfg, docs_format="pdf"), "root")
+    assert fake.downloads == [] and stats2["skipped"] == 3
 
 
 def test_sync_once_backfills_lineage_without_download(sync_env):

@@ -430,7 +430,16 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
         # rename-cleanup below never unlinks the freshly written sidecar.
         if _clobbered_by_sidecar(cfg, fid, prev_local):
             prev_local = None
-        if prev and prev.get("fingerprint") == fp and prev_local and (cfg.raw_dir / prev_local).exists():
+        # The skip must also require the recorded path to be the name THIS config would write.
+        # `fingerprint` is modifiedTime|size|md5 — purely remote — so a local export-format change
+        # (GOOGLE_DOCS_FORMAT md -> pdf) is invisible to it, and comparing only "some file is at the
+        # recorded path" meant the switch did nothing, forever: no download, no log, no error, while
+        # clean kept converting the old export. Exact comparison: this path is always written from
+        # content_name, so any difference is a real change, and a hand-edited manifest that differs
+        # only in case costs one re-download and then records the canonical name.
+        _, expected_local = content_name(cfg, d, mime, fid)
+        if (prev and prev.get("fingerprint") == fp and prev_local == expected_local
+                and (cfg.raw_dir / prev_local).exists()):
             # Backfill/refresh path metadata without redownloading unchanged files.
             touched = False
             for k, v in lineage.items():
