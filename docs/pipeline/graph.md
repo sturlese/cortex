@@ -42,4 +42,8 @@ cd pipeline/graph && PYTHONPATH=src python -m graph.cli \
   --in /path/to/brain-md --out /path/to/brain-md-graphed --min-mentions 2
 ```
 
-Output is deterministic for a given input: safe to delete and rebuild anytime.
+Output is deterministic for a given input: safe to delete and rebuild anytime. The input is the
+pages' **content** — not the order the filesystem happens to yield them in, so adding an unrelated
+page never relocates an existing entity. Every choice that could tie is decided by a stated rule:
+the entity's type and its aliases by most-mentioned then alphabetical, its title by
+non-ALL-CAPS → shortest → most-mentioned → alphabetical.
