@@ -59,6 +59,13 @@ must degrade to body-only, never raise (note that an impossible date like `2026-
 you cannot read has an `acl` you cannot read, so treat it as restricted-to-nobody rather than open.
 Only a page with genuinely no `acl` key is open.
 
+That applies to the `acl` **value** as much as to the block. It is a list of labels and nothing else:
+a scalar (`acl: finance`), a mapping, `null`, or a label that your storage cannot represent all mean
+"an `acl` I cannot read" — restricted to nobody, never open. If you serialize labels into one field,
+reject any label containing your separator or blank after trimming (`clean.acl` rejects exactly those
+when the config is loaded, but do not assume the page you are reading came through that check): a
+label like `finance,eng` would otherwise split into **two** audiences and widen access.
+
 ## How a client should read it
 
 | Field | Client behavior |

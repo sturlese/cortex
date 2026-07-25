@@ -2,11 +2,12 @@
 import asyncio
 import dataclasses
 import inspect
+import os
 import re
 
 from tests.conftest import add_fact, write_page
 
-from answer import mcp_server, metrics
+from answer import index, mcp_server, metrics
 from answer.index import visible
 from answer.service import AnswerService
 
@@ -178,24 +179,135 @@ def test_unrestricted_service_unchanged(service):
     assert asyncio.run(service.ask("what is the arr-usd for initech in 2026-03?"))["refused"] is False
 
 
-def test_pre_fix_index_reencodes_empty_acl_as_open(tmp_path):
-    """Old indexes stored '' for pages with no acl; under the fixed encoding '' means
-    "restricted to nobody", so connect() must re-encode legacy rows to NULL (their observed
-    behavior) exactly once, without touching rows written after the migration."""
-    from answer import index
-    state = str(tmp_path / "state")
-    conn = index.connect(state)
-    conn.execute("INSERT INTO pages (path, acl) VALUES ('legacy.md', '')")
+def test_a_legacy_index_re_derives_both_acl_encodings(tmp_path, corpus):
+    """Both ACL migrations, end to end, because the value a migration leaves behind is provisional:
+    it is the state AFTER the following refresh that gets served.
+
+    v1 (#30): old indexes stored '' for a page with NO acl, and '' now means restricted-to-nobody,
+    so such a page must end up open again. v2 (this fix): a row indexed before refresh could read a
+    non-list `acl:` holds NULL — open — and refresh only re-reads a page whose mtime/size changed,
+    so the migration has to invalidate the cached stat or those rows stay open for the life of the
+    index. It closes them meanwhile (unknown is not open), and refresh then derives the truth."""
+    write_page(corpus.brain_md_dir, "general/scalar.md", {"title": "s", "acl": "finance"}, "secret body")
+    write_page(corpus.brain_md_dir, "general/noacl.md", {"title": "n"}, "open body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    # rewind to a pre-migration index: v1's legacy encoding for no-acl, v2's for an unreadable one
+    conn.execute("UPDATE pages SET acl = '' WHERE path = 'general/noacl.md'")
+    conn.execute("UPDATE pages SET acl = NULL WHERE path = 'general/scalar.md'")
     conn.execute("PRAGMA user_version = 0")
     conn.commit()
     conn.close()
-    conn = index.connect(state)                      # migration fires
-    assert conn.execute("SELECT acl FROM pages WHERE path='legacy.md'").fetchone()["acl"] is None
-    conn.execute("INSERT INTO pages (path, acl) VALUES ('empty.md', '')")
+
+    conn = index.connect(corpus.state_dir)                     # both migrations fire
+    assert conn.execute("SELECT acl FROM pages WHERE path='general/scalar.md'").fetchone()["acl"] == ""
+    index.refresh(conn, corpus.brain_md_dir)                   # ...then the truth is re-derived
+    assert index.get_page(conn, "general/noacl.md")["acl"] is None        # v1: open again
+    assert index.get_page(conn, "general/scalar.md")["acl"] == ""         # v2: nobody scoped
+    assert not index.visible(index.get_page(conn, "general/scalar.md")["acl"], {"eng"})
+
+    # neither migration may fire again: a row written afterwards keeps its value
+    conn.execute("INSERT INTO pages (path, acl) VALUES ('written-later.md', '')")
     conn.commit()
     conn.close()
-    conn = index.connect(state)                      # migration must NOT fire again
-    assert conn.execute("SELECT acl FROM pages WHERE path='empty.md'").fetchone()["acl"] == ""
+    conn = index.connect(corpus.state_dir)
+    assert conn.execute("SELECT acl FROM pages WHERE path='written-later.md'").fetchone()["acl"] == ""
+    assert conn.execute("SELECT mtime FROM pages WHERE path='general/noacl.md'").fetchone()["mtime"] > 0
+
+
+def test_an_acl_the_index_cannot_read_is_not_open(corpus):
+    """`refresh` honoured `acl` only when it was a YAML *list*; every other shape fell through to
+    NULL, i.e. "this page carries no ACL" — open. So the intuitive single-label form `acl: finance`
+    served a restricted page to everyone. The rule is already written down in
+    brain-page-contract.md: only a page with genuinely NO `acl` key is open; an `acl` you cannot
+    read is an `acl`, so it means restricted-to-nobody."""
+    shapes = {"scalar": "finance", "quoted": '"finance"', "blank": "''", "null": "null",
+              "mapping": "{finance: true}", "empty-list": "[]"}
+    for name, value in shapes.items():
+        write_page(corpus.brain_md_dir, f"general/{name}.md",
+                   {"title": name, "acl": value}, "confidential payroll body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    for name in shapes:
+        acl = index.get_page(conn, f"general/{name}.md")["acl"]
+        assert acl is not None, name                       # NULL would mean "open to everyone"
+        assert not index.visible(acl, {"eng"}), name
+        assert index.visible(acl, None), name              # unrestricted still sees it: discoverable
+    # a page that genuinely carries no acl key is still open — that is the one open case
+    write_page(corpus.brain_md_dir, "general/noacl.md", {"title": "x"}, "open body")
+    index.refresh(conn, corpus.brain_md_dir)
+    assert index.get_page(conn, "general/noacl.md")["acl"] is None
+
+
+def test_an_acl_in_a_block_we_could_not_read_is_not_open(corpus):
+    """Recognising the block must not require the CLOSING `---`. It did, so a page carrying
+    `acl: [finance]` inside a block that is unclosed, truncated mid-write, or ended with YAML's
+    `...` was indexed as "no acl" — open to everyone. A BOM or a leading blank line before the
+    opener did the same. The BOM case parses correctly now (a BOM is encoding noise, not content);
+    the rest cannot be parsed at all, so they resolve to restricted-to-nobody."""
+    unreadable = {
+        "unclosed": "---\ntitle: p\nacl: [finance]\nbody\n",
+        "truncated": "---\ntitle: p\nacl: [fin",
+        "dots": "---\ntitle: p\nacl: [finance]\n...\nbody\n",
+        "leadblank": "\n---\ntitle: p\nacl: [finance]\n---\nbody\n",
+    }
+    for name, text in unreadable.items():
+        with open(os.path.join(corpus.brain_md_dir, f"{name}.md"), "w", encoding="utf-8") as f:
+            f.write(text)
+    with open(os.path.join(corpus.brain_md_dir, "bom.md"), "w", encoding="utf-8") as f:
+        f.write("﻿---\ntitle: p\nacl: [finance]\n---\nbody\n")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    for name in unreadable:
+        acl = index.get_page(conn, f"{name}.md")["acl"]
+        assert acl == "", name                             # NULL here would be open to everyone
+        assert not index.visible(acl, {"eng"}), name
+        assert index.visible(acl, None), name
+    # the BOM is stripped, so this page's real ACL is read rather than merely being closed
+    assert index.get_page(conn, "bom.md")["acl"] == "finance"
+    assert index.visible("finance", {"finance"}) and not index.visible("finance", {"eng"})
+
+
+def test_a_non_string_label_is_not_coerced_into_a_grantable_one(corpus):
+    """`str(label)` would RENAME rather than reject, and a renamed label is grantable. YAML 1.1
+    reads `acl: [010]` as the int 8 and `acl: [12:30]` as 750, so coercing indexed audiences "8"
+    and "750" that nobody granted — the widening the label check exists to prevent. It also
+    collided `[~]` with `["None"]`."""
+    shapes = {"octal": ("[010]", "8"), "sexagesimal": ("[12:30]", "750"),
+              "hex": ("[0x1f]", "31"), "nil": ("[~]", "None"), "nested": ("[[a]]", "['a']")}
+    for name, (value, _coerced) in shapes.items():
+        write_page(corpus.brain_md_dir, f"general/{name}.md", {"title": name, "acl": value}, "body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    for name, (_, coerced) in shapes.items():
+        acl = index.get_page(conn, f"general/{name}.md")["acl"]
+        assert acl == "", name                             # unreadable, not renamed
+        assert not index.visible(acl, {coerced}), f"{name}: audience {coerced!r} was never granted"
+
+
+def test_a_comma_inside_a_label_cannot_widen_access(corpus):
+    """Labels are CSV-serialised into one column, so `clean.acl._check_labels` rejects a comma
+    inside a label — "the exact silent-corruption failure mode an access-control config must not
+    have". The index re-derives the same encoding from page text and applied no such check, so
+    `acl: ["finance,eng"]` joined to "finance,eng" and `visible` split it back into TWO audiences,
+    granting eng. A label the encoding cannot represent makes the whole ACL unreadable."""
+    write_page(corpus.brain_md_dir, "general/csvlabel.md",
+               {"title": "x", "acl": '["finance,eng"]'}, "confidential payroll body")
+    write_page(corpus.brain_md_dir, "general/blanklabel.md",
+               {"title": "x", "acl": '["finance", "  "]'}, "confidential payroll body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    for name in ("csvlabel", "blanklabel"):
+        acl = index.get_page(conn, f"general/{name}.md")["acl"]
+        assert not index.visible(acl, {"eng"}), name
+        assert not index.visible(acl, {"finance"}), name   # unreadable, so nobody scoped — not eng, not finance
+        assert index.visible(acl, None), name
+    # a well-formed multi-label acl is unaffected
+    write_page(corpus.brain_md_dir, "general/ok.md",
+               {"title": "x", "acl": "[finance, leadership]"}, "body")
+    index.refresh(conn, corpus.brain_md_dir)
+    ok = index.get_page(conn, "general/ok.md")["acl"]
+    assert index.visible(ok, {"leadership"}) and not index.visible(ok, {"eng"})
 
 
 def test_settings_parse_audiences(monkeypatch):
