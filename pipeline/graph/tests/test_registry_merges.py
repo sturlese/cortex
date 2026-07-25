@@ -143,6 +143,47 @@ def test_apply_merge_leaves_unrelated_entities_alone(tmp_path):
     assert again.entities["initech"]["aliases"] == ["Initech SL"]
 
 
+def _alias_conflicts(reg):
+    """Normalized keys claimed by more than one entity — the state that makes a registry's meaning
+    depend on cid sort order at load time."""
+    from graph.normalize import normalize
+    owner, dup = {}, set()
+    for cid, e in reg.entities.items():
+        for a in (cid, e["name"], *e["aliases"]):
+            key = normalize(str(a))
+            if not key:
+                continue
+            if key in owner and owner[key] != cid:
+                dup.add(key)
+            owner.setdefault(key, cid)
+    return sorted(dup)
+
+
+def test_apply_merge_never_leaves_the_registry_self_contradictory(tmp_path):
+    """The guarantee: a merge must not leave two entities claiming the same name, because that is
+    what makes the file's meaning depend on cid sort order. Absorbing the conflicting entity is what
+    delivers it — folding only its names is what did not.
+
+    Note the scope: a conflict a human hand-authored between entities the merge does not touch is
+    CARRIED FORWARD, not silently resolved. Resolving someone else's ambiguity is not a merge's
+    business; that is a separate concern, recorded on the backlog."""
+    reg = Registry()
+    for cid, name, aliases in [("globex-industries", "Globex Industries", ["Globex"]),
+                               ("initech", "Initech", ["Initech SL"])]:
+        reg.entities[cid] = {"name": name, "type": "organization", "aliases": list(aliases)}
+    assert _alias_conflicts(reg) == []
+
+    apply_merge(reg, "globex", "Globex", "organization", ["Globex", "Globex Industries"])
+    assert _alias_conflicts(reg) == []                     # today: ['globex', 'globex industries']
+    assert sorted(reg.entities) == ["globex", "initech"]
+
+    # a pre-existing conflict between two entities the merge does not touch stays exactly as it was
+    reg.entities["other"] = {"name": "Initech", "type": "organization", "aliases": []}
+    before = _alias_conflicts(reg)
+    apply_merge(reg, "globex", "Globex", "organization", ["Globex"])
+    assert _alias_conflicts(reg) == before == ["initech"]
+
+
 def test_build_graph_with_registry_writes_canonical_node(tmp_path):
     brain = tmp_path / "brain"
     (brain / "entities/g").mkdir(parents=True)
