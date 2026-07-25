@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **ACL: a whitespace-padded audience label was silently ungrantable.** A client's scope is trimmed
+  before comparison while labels are compared exactly, so an `acl-config.json` rule granting
+  `" finance "` loaded without complaint and produced pages **no scoped client could see** — the
+  opposite of what the file said. Such labels are now rejected at config load, on both sides of the
+  contract (`clean.acl._check_labels` and `answer.index._label_ok`), and the agreement between them
+  is enforced by a new eval clause.
+
+  **Upgrade note:** if a live `CLEAN_ACL` file contains a padded label, `clean` now refuses to start
+  and names the label. That configuration was already broken — the grant reached nobody — but the
+  failure is new, so check your ACL file before upgrading. Validation moved to startup so this
+  cannot crash-loop a `restart: unless-stopped` container part-way through a pass. A page already
+  indexed with a padded label keeps enforcing identically (both encodings are restricted-to-nobody),
+  so no re-index is required.
+
 ## [0.2.0] - 2026-07-18
 
 The "referent memory layer" release: the pipeline grows a verified numeric facts

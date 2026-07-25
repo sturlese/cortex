@@ -310,6 +310,56 @@ def test_a_comma_inside_a_label_cannot_widen_access(corpus):
     assert index.visible(ok, {"leadership"}) and not index.visible(ok, {"eng"})
 
 
+def test_a_label_no_client_scope_could_produce_is_not_honoured(corpus):
+    """The mirror image of the comma case: a padded label is silently DEAD rather than widening.
+
+    A client's scope is split AND stripped (`settings._labels`), while enforcement compares labels
+    exactly, so no ANSWER_AUDIENCES value can ever produce " finance ". A page carrying it was
+    indexed verbatim and reached NOBODY — not finance, not anyone — while the ACL file said finance.
+    Now the label is refused like any other unrepresentable one, which makes the whole ACL unreadable
+    and therefore restricted-to-nobody: still closed, but discoverable by an unrestricted operator
+    instead of looking like a working grant.
+
+    `clean.acl._check_labels` refuses to write one in the first place; this is the read side, which
+    re-derives the rule from page text and cannot assume the writer validated it. Kept honest by
+    eval_contract_parity's label-validity clause."""
+    for name, value in {"pad": '[" finance "]', "lead": '[" finance"]',
+                        "trail": '["finance "]', "tab": '["\\tfinance"]'}.items():
+        write_page(corpus.brain_md_dir, f"general/{name}.md",
+                   {"title": name, "acl": value}, "confidential payroll body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    for name in ("pad", "lead", "trail", "tab"):
+        acl = index.get_page(conn, f"general/{name}.md")["acl"]
+        assert acl == "", name                             # NULL would be open to everyone
+        assert not index.visible(acl, {"finance"}), name   # the label the author believed they granted
+        assert index.visible(acl, None), name              # ...but an operator can still find the page
+
+    # A MIXED list loses the valid labels too, and that is the existing all-or-nothing rule rather
+    # than something this change chose: `all(_label_ok(...))` treats an unrepresentable label as
+    # "this page's audience is UNKNOWN", and test_a_comma_inside_a_label_cannot_widen_access already
+    # pins it for ["finance", "  "]. Worth pinning here because the consequence is visible: a
+    # pre-existing page written as [" finance ", "sales"] served sales before and serves nobody now.
+    # Availability only — it can never widen — and the page stays visible to an unrestricted
+    # operator, which is how the misconfiguration gets noticed instead of lingering.
+    write_page(corpus.brain_md_dir, "general/mixed.md",
+               {"title": "x", "acl": '[" finance ", "sales"]'}, "body")
+    index.refresh(conn, corpus.brain_md_dir)
+    mixed = index.get_page(conn, "general/mixed.md")["acl"]
+    assert mixed == ""
+    assert not index.visible(mixed, {"sales"})          # the grant that used to work
+    assert index.visible(mixed, None)
+
+    # YAML strips a trailing space from a PLAIN scalar, so the everyday `[finance, leadership]`
+    # spelling is unaffected — this fix only refuses labels whose padding actually survives parsing.
+    write_page(corpus.brain_md_dir, "general/plain.md",
+               {"title": "x", "acl": "[finance , leadership]"}, "body")
+    index.refresh(conn, corpus.brain_md_dir)
+    ok = index.get_page(conn, "general/plain.md")["acl"]
+    assert ok == "finance,leadership"
+    assert index.visible(ok, {"finance"})
+
+
 def test_visible_sql_agrees_with_visible(tmp_path):
     """index.visible_sql is a second FORM of the one visibility rule, not a second rule — so the two
     are proven identical over a truth table rather than trusted to stay in step. This repo has spent

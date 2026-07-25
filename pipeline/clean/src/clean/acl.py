@@ -53,12 +53,23 @@ def _check_labels(path: str, audiences: list) -> None:
     """Audience labels are CSV-serialized downstream (facts rows, the answer index): a comma
     inside a label would silently split into two audiences at enforcement time — the exact
     silent-corruption failure mode an access-control config must not have. Empty labels would
-    vanish in the same round-trip."""
+    vanish in the same round-trip.
+
+    Surrounding whitespace is rejected for the mirror-image reason. Enforcement compares labels
+    EXACTLY (`answer.index.visible`), while a client's scope is split and stripped
+    (`answer.settings._labels`), so no ANSWER_AUDIENCES value can ever produce " finance " —
+    a rule granting it is dead on arrival and the documents it covers reach nobody. Silently
+    over-restrictive is milder than silently open, but it is just as silent, and this file is the
+    access-control authority: it must never mean something other than what it says."""
     for a in audiences:
         s = str(a)
         if "," in s or not s.strip():
             raise ValueError(f"acl config {path}: invalid audience label {s!r} "
                              "(labels must be non-empty and must not contain ',')")
+        if s != s.strip():
+            raise ValueError(f"acl config {path}: invalid audience label {s!r} (surrounding "
+                             "whitespace; a client scope is stripped, so this label could never "
+                             f"be granted — did you mean {s.strip()!r}?)")
 
 
 def resolve_acl(config: dict | None, source_path: str, unit: str | None,

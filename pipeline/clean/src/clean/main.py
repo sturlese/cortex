@@ -283,7 +283,16 @@ def cli(argv=None) -> None:
         prog="clean", description="Agentic ingestion worker: raw file mirror -> verified brain-md pages.")
     parser.add_argument("--once", action="store_true", help="run a single pass instead of looping")
     args = parser.parse_args(argv)
-    asyncio.run(main(Settings.from_env(), once=args.once))
+    cfg = Settings.from_env()
+    try:
+        # Validate the ACL file BEFORE any work: the pass loads it deep in the work path, after
+        # dedup_pending has already deleted pages and facts rows, and compose runs this
+        # `restart: unless-stopped` — so a rejected label would otherwise crash-loop a container
+        # that destroys state on every lap and processes nothing. Loud and immediate, no traceback.
+        load_acl_config(cfg.acl_path or None)
+    except (ValueError, OSError) as e:
+        raise SystemExit(f"ERROR: {e}") from None
+    asyncio.run(main(cfg, once=args.once))
 
 
 if __name__ == "__main__":
