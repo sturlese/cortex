@@ -46,8 +46,14 @@ def dedup_pending(pending, state, inventory, brain_md_dir=None, facts_dir=None):
     pending doc in this pass) becomes `duplicate` -> no LLM call, no page, state points at the
     canonical file id. Deterministic: existing processed entries win; within a pass, lowest id."""
     canonical = {}
+    # A doc is pending precisely because its recorded hash is stale (new, or bytes changed), so its
+    # RECORDED hash must not seed the index: it no longer serves that content. Seeding from it filed
+    # a doc carrying those old bytes as a duplicate of a page that does not have them, and since the
+    # duplicate's own bytes never change again its content was lost with no error.
+    restale = {d["fileId"] for d in pending if d.get("rawHash")}
     for fid, f in state.get("files", {}).items():
-        if f.get("status") == "processed" and f.get("rawHash") and fid in inventory:
+        if (f.get("status") == "processed" and f.get("rawHash")
+                and fid in inventory and fid not in restale):
             canonical.setdefault(f["rawHash"], fid)
     kept, duplicates = [], 0
     now = datetime.datetime.now(datetime.UTC).isoformat()

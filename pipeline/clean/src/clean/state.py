@@ -92,18 +92,29 @@ def classify_pending(inventory, state, raw_dir):
     """Pending = new / changed (hash) / previous error / requeued / restored-after-delete /
     orphaned-duplicate (its canonical is gone) / deleted."""
     pending, seen = [], set()
+    # Hash every present file up front: deciding whether a duplicate is still deduped needs its
+    # CANONICAL's current hash, not just its own. Same total work as hashing inside the loop.
+    paths = {}
+    for file_id, entry in inventory.items():
+        local = entry.get("localPath")
+        p = os.path.join(raw_dir, local) if local else None
+        if p and os.path.exists(p):
+            paths[file_id] = p
+    hashes = {fid: file_sha256(p) for fid, p in paths.items()}
     for file_id, entry in inventory.items():
         seen.add(file_id)
-        local = entry.get("localPath")
-        path = os.path.join(raw_dir, local) if local else None
-        if not path or not os.path.exists(path):
+        if file_id not in paths:
             continue
-        raw_hash = file_sha256(path)
+        path, raw_hash = paths[file_id], hashes[file_id]
         prev = state["files"].get(file_id)
         # A file whose source reappeared after a delete (its page was removed) must be regenerated
-        # even if the bytes are unchanged; a duplicate whose canonical left the inventory is now the
-        # only holder of that content and must get its own page.
-        orphaned_dup = prev and prev.get("status") == "duplicate" and prev.get("duplicateOf") not in inventory
+        # even if the bytes are unchanged; a duplicate is the only holder of its content — and so
+        # needs its own page — once its canonical stops serving that content, whether because the
+        # canonical LEFT the inventory or because its bytes CHANGED. `hashes.get(canon, raw_hash)`
+        # leaves a canonical that is in the inventory but missing on disk deduped, as before.
+        canon = prev.get("duplicateOf") if prev else None
+        orphaned_dup = (prev and prev.get("status") == "duplicate"
+                        and (canon not in inventory or hashes.get(canon, raw_hash) != raw_hash))
         if (not prev or prev.get("rawHash") != raw_hash
                 or prev.get("status") in ("error", "requeued", "deleted")
                 or orphaned_dup):
