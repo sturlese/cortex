@@ -42,4 +42,15 @@ cd pipeline/graph && PYTHONPATH=src python -m graph.cli \
   --in /path/to/brain-md --out /path/to/brain-md-graphed --min-mentions 2
 ```
 
-Output is deterministic for a given input: safe to delete and rebuild anytime.
+Output is deterministic for a given input: safe to delete and rebuild anytime. The input is the
+pages' **content** — not the order the filesystem happens to yield them in, so re-running the build
+over an unchanged corpus cannot move anything. Every choice that could tie is decided by a stated
+rule: the entity's type and its aliases by most-mentioned, then by **codepoint** order (not locale
+collation, so for equal-length names it prefers the more-ASCII spelling); its title by
+non-ALL-CAPS → shortest → most-mentioned → codepoint.
+
+One caveat, since it is the same class of surprise: slugs are assigned in key order, and two
+different keys can slugify identically (`Foo & Bar` and `Foo + Bar` both give `foo-bar`), with the
+second taking a `-2` suffix. So adding an entity whose key sorts earlier *can* move an existing
+one's node path — not because of walk order, but because the disambiguation depends on the set of
+keys. Rare, and the build rewrites every link consistently, but it is not "nothing ever moves".

@@ -240,6 +240,46 @@ def test_apply_merge_never_leaves_the_registry_self_contradictory(tmp_path):
     assert _alias_conflicts(reg) == before == ["initech"]
 
 
+def test_build_graph_output_is_byte_identical_under_any_walk_order(tmp_path, monkeypatch):
+    """The determinism claim end to end, not just at build_entities: the WHOLE output tree — node
+    pages, rewritten docs and every wikilink — must be byte-identical however the filesystem yields
+    the inputs. A type tie used to decide the node's file path, so walk order rewrote links."""
+    import os
+    import shutil
+
+    brain = tmp_path / "brain"
+    (brain / "entities/x").mkdir(parents=True)
+    # a genuine tie: two documents, two guesses at the same company's type
+    (brain / "entities/x/a.md").write_text(
+        "---\nmentions:\n  - { name: Initech, type: company }\n---\n\n# A\n\nbody\n")
+    (brain / "entities/x/b.md").write_text(
+        "---\nmentions:\n  - { name: Initech, type: organization }\n---\n\n# B\n\nbody\n")
+    # the title and alias ties have to live in SEPARATE files: within one file the mention order is
+    # fixed by the frontmatter, so only cross-file order can flip them
+    (brain / "entities/x/c.md").write_text(
+        "---\nmentions:\n  - { name: Acme Corp, type: company }\n---\n\n# C\n\nbody\n")
+    (brain / "entities/x/d.md").write_text(
+        "---\nmentions:\n  - { name: Acme GmbH, type: company }\n---\n\n# D\n\nbody\n")
+    # ...and enough spellings that render_node's alias list has more than one entry after the title
+    # is excluded, or its ORDER cannot show up in the output at all
+    for i, spelling in enumerate(("ACME CORP", "Acme  Corp", "acme corp")):
+        (brain / f"entities/x/e{i}.md").write_text(
+            f"---\nmentions:\n  - {{ name: {spelling}, type: company }}\n---\n\n# E{i}\n\nbody\n")
+
+    real_walk = os.walk
+
+    def snapshot(reverse):
+        monkeypatch.setattr(os, "walk", lambda root, **kw: [
+            (d, sorted(dirs, reverse=reverse), sorted(files, reverse=reverse))
+            for d, dirs, files in real_walk(root, **kw)])
+        out = tmp_path / f"out-{reverse}"
+        shutil.rmtree(out, ignore_errors=True)
+        build_graph(str(brain), str(out), min_mentions=1)
+        return {str(p.relative_to(out)): p.read_text() for p in out.rglob("*.md")}
+
+    assert snapshot(False) == snapshot(True)
+
+
 def test_build_graph_with_registry_writes_canonical_node(tmp_path):
     brain = tmp_path / "brain"
     (brain / "entities/g").mkdir(parents=True)

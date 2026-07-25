@@ -8,8 +8,10 @@ from graph.normalize import is_noise, normalize, slugify
 
 
 def _best_title(names: Counter) -> str:
-    """Canonical title: prefer non-ALL-CAPS, then shorter (fewer suffixes), then most frequent."""
-    return sorted(names, key=lambda n: (n.isupper(), len(n), -names[n]))[0]
+    """Canonical title: prefer non-ALL-CAPS, then shorter (fewer suffixes), then most frequent, then
+    alphabetical. That last key is what makes it a RULE rather than merely stable: without it a tie
+    fell through to the Counter's first-encounter order, i.e. the order os.walk yielded the pages."""
+    return sorted(names, key=lambda n: (n.isupper(), len(n), -names[n], n))[0]
 
 
 def build_entities(mention_counts, min_mentions: int = 2, registry=None) -> dict:
@@ -30,7 +32,11 @@ def build_entities(mention_counts, min_mentions: int = 2, registry=None) -> dict
         if g["total"] < min_mentions:
             continue
         registered = registry.entities.get(key) if registry else None
-        typ = (registered or {}).get("type") or g["types"].most_common(1)[0][0]
+        # most frequent, then alphabetical. Counter.most_common breaks ties by first-encounter, and
+        # this value becomes the node's FILE PATH (entities/<type>/<slug>) and every wikilink to it —
+        # so a tie let an unrelated file added to brain-md relocate an entity and rewrite the links.
+        typ = ((registered or {}).get("type")
+               or min(g["types"], key=lambda t: (-g["types"][t], t)))
         base = f"entities/{typ}/{slugify(key)}"
         slug, i = base, 2
         while slug in used:          # disambiguate slug collisions
@@ -40,6 +46,9 @@ def build_entities(mention_counts, min_mentions: int = 2, registry=None) -> dict
             "slug": slug,
             "title": (registered or {}).get("name") or _best_title(g["names"]),
             "type": typ,
-            "aliases": list(g["names"]), "mentions": g["total"],
+            # most frequent first, then alphabetical: render_node truncates to aliases[:8], so this
+            # decides WHICH survive — insertion order made that the walk order too.
+            "aliases": sorted(g["names"], key=lambda n: (-g["names"][n], n)),
+            "mentions": g["total"],
         }
     return entities
