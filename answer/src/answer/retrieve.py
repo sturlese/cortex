@@ -12,6 +12,8 @@ import re
 import sqlite3
 
 TOP_K = 5
+# bm25-ordered candidates to rank, counted in pages the client may SEE (see search()).
+_POOL = 40
 _RECENCY_WORDS = {"current", "latest", "now", "today", "newest", "most recent"}
 
 # multiplicative penalties on the BM25 rank (BM25 is better when lower, so factors > 1 demote)
@@ -54,12 +56,16 @@ def search(conn: sqlite3.Connection, query: str, k: int = TOP_K,
     """Top-k pages for the query with contract-aware ranking. Hits carry `factors` (the applied
     adjustments) and a snippet. `include_superseded=False` drops stale versions entirely;
     `audiences` filters to pages the client may see (None = unrestricted)."""
-    from answer.index import visible
+    from answer.index import visible_sql
+    # The scope goes in the WHERE, so the pool holds the best _POOL candidates the client may SEE.
+    # Capping first and filtering after let out-of-scope pages crowd an open, matching page out of
+    # the pool entirely — zero hits for a scoped client where unrestricted got five.
+    acl_sql, acl_args = visible_sql("p.acl", audiences)
     rows = conn.execute(
         "SELECT p.*, bm25(pages_fts) AS bm25 FROM pages_fts"
         " JOIN pages p ON p.rowid = pages_fts.rowid"
-        " WHERE pages_fts MATCH ? ORDER BY bm25 LIMIT 40",
-        (_fts_query(query),)).fetchall()
+        f" WHERE pages_fts MATCH ? AND {acl_sql} ORDER BY bm25 LIMIT ?",
+        (_fts_query(query), *acl_args, _POOL)).fetchall()
     q_low = query.lower()
     q_tokens = set(re.findall(r"[a-z0-9][a-z0-9'-]*", q_low))
     periods = _query_periods(query)
@@ -67,9 +73,7 @@ def search(conn: sqlite3.Connection, query: str, k: int = TOP_K,
 
     hits = []
     for r in rows:
-        p = dict(r)
-        if not visible(p.get("acl"), audiences):
-            continue                     # not an annotation: an invisible page simply isn't there
+        p = dict(r)                      # already ACL-filtered while building the pool above
         if not include_superseded and p["superseded_by"]:
             continue
         adjustments: list[tuple[float, str]] = []

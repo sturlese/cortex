@@ -29,7 +29,7 @@ def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None 
     `audiences` filters to rows whose document the client may see (None = unrestricted).
     A store with no `acl` column carries no audience information, so a SCOPED client gets nothing:
     unknown is not open — the same direction the page index takes for an unreadable acl."""
-    from answer.index import visible
+    from answer.index import visible_sql
     if not os.path.exists(_db(facts_dir)):
         return []
     where, args = ["verified = 1"], []
@@ -47,10 +47,16 @@ def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None 
     try:
         if audiences is not None and not _carries_acl(conn):
             return []
+        # The scope goes in the WHERE, so LIMIT counts rows the client may SEE. Filtering after a SQL
+        # LIMIT let invisible rows consume slots and starve a scoped client to zero results, while
+        # dropping the LIMIT to filter in Python unbounds the sorter. See index.visible_sql.
+        acl_sql, acl_args = visible_sql("acl", audiences)
+        where.append(acl_sql)
+        args.extend(acl_args)
         rows = conn.execute(
             f"SELECT * FROM observations WHERE {' AND '.join(where)}"
             " ORDER BY entity, metric, period, source_ref LIMIT ?", [*args, limit]).fetchall()
-        return [dict(r) for r in rows if visible(dict(r).get("acl"), audiences)]
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 
