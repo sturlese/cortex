@@ -188,6 +188,46 @@ def test_build_page_yaml_implicit_typed_scalars_round_trip():
         assert fm["tags"] == [hostile], (hostile, fm["tags"])
 
 
+def test_build_page_hostile_type_and_date_keep_the_acl_readable():
+    """`type` and `date` are free-form model strings (schemas.PageMetadata), so they must round-trip
+    through _yaml like every other scalar. Emitted plain, a colon in either makes the WHOLE block
+    unparseable — and a consumer that reads no frontmatter reads no acl, which the answer layer
+    encodes as NULL, i.e. visible to every client. A restricted page must never be served open
+    because the model picked an awkward type."""
+    import yaml
+
+    out = _out(metadata=PageMetadata(title="Payroll", type="report: draft", date="unknown: n/a"))
+    page = build_page(out, _lineage(), {}, acl=["finance"])
+    fm = yaml.safe_load(page.split("\n---\n", 1)[0].removeprefix("---\n"))   # must not raise
+    assert fm["acl"] == ["finance"]
+    assert fm["type"] == "report: draft"
+    assert fm["date"] == "unknown: n/a"
+
+
+def test_build_page_type_cannot_forge_sibling_frontmatter_keys():
+    """A newline in `type` must stay inside the value, not open new frontmatter lines the model
+    controls (here a wider acl)."""
+    import yaml
+
+    out = _out(metadata=PageMetadata(title="Payroll", type="note\nacl: [all]"))
+    page = build_page(out, _lineage(), {}, acl=["finance"])
+    fm = yaml.safe_load(page.split("\n---\n", 1)[0].removeprefix("---\n"))
+    assert fm["type"] == "note\nacl: [all]"
+    assert fm["acl"] == ["finance"]
+
+
+def test_build_page_date_round_trips_as_a_string():
+    """A plain ISO date re-types to datetime.date on read; as_of goes through _yaml and stays a
+    string, so unquoted `date` made the page's two date fields disagree in type downstream."""
+    import yaml
+
+    page = build_page(_out(metadata=PageMetadata(title="T", type="report", date="2026-03-14")),
+                      _lineage(), {}, as_of="2026-03-14")
+    fm = yaml.safe_load(page.split("\n---\n", 1)[0].removeprefix("---\n"))
+    assert fm["date"] == "2026-03-14"
+    assert fm["date"] == fm["as_of"]
+
+
 def test_build_page_no_spurious_alias_for_long_entity_names():
     """entity_aliases must appear only when the display name genuinely differs from its slug.
     The old page-local slugify (capped at 80 chars) disagreed with entity.py's uncapped one on

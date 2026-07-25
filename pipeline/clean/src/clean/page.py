@@ -76,9 +76,12 @@ def build_page(out: ProcessorOutput, lineage: dict, entity: dict = None, verific
     method = lineage.get("method", "")
     source_format = SOURCE_FORMAT.get(method, "other")
     ent = entity or {}
-    fm = ["---", f"type: {m.type}", f"title: {_yaml(m.title)}"]
+    # type and date are free-form model strings (schemas.PageMetadata), so they go through _yaml
+    # like every other scalar: emitted plain, a colon or newline in either breaks the WHOLE block,
+    # and a consumer that parses no frontmatter reads no acl — i.e. serves the page to everyone.
+    fm = ["---", f"type: {_yaml(m.type)}", f"title: {_yaml(m.title)}"]
     if m.date:
-        fm.append(f"date: {m.date}")
+        fm.append(f"date: {_yaml(m.date)}")
     if as_of:
         # content validity time, at the finest PROVABLE granularity (verify.provable_as_of / the
         # entity's path period) — the answer layer ranks current truth with this.

@@ -24,6 +24,15 @@ def test_split_no_frontmatter_and_bad_yaml():
     assert fm == {}
 
 
+def test_split_frontmatter_invalid_date_degrades_instead_of_crashing():
+    """An impossible-but-timestamp-shaped date matches YAML's implicit timestamp regex and raises a
+    bare ValueError out of datetime.date(), not a YAMLError. Uncaught, ONE such page aborted the
+    whole build in pass 1 — the docstring promises frontmatter = {} instead."""
+    for bad in ["2026-02-30", "2024-06-31", "0000-00-00", "2026-13-01"]:
+        text = f"---\ntype: report\ndate: {bad}\n---\nbody\n"
+        assert split_frontmatter(text) == ({}, text), bad
+
+
 def test_page_mentions():
     ms = page_mentions(DOC)
     assert ("Initech", "company") in ms

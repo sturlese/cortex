@@ -70,7 +70,10 @@ def split_frontmatter(text: str) -> tuple[dict, str]:
             try:
                 fm = yaml.safe_load(m.group(1)) or {}
                 return (fm if isinstance(fm, dict) else {}), m.group(2)
-            except yaml.YAMLError:
+            except (yaml.YAMLError, ValueError):
+                # ValueError, not just YAMLError: a scalar matching YAML's timestamp regex but not a
+                # real date ("2026-02-30") reaches datetime.date() and raises bare — uncaught, one
+                # page aborts the whole refresh. Mirrors clean's page._yaml and graph's pages._y.
                 return {}, text
     return {}, text
 

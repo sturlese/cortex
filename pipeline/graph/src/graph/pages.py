@@ -13,7 +13,10 @@ def split_frontmatter(text: str):
         if m:
             try:
                 return (yaml.safe_load(m.group(1)) or {}), m.group(2)
-            except yaml.YAMLError:
+            except (yaml.YAMLError, ValueError):
+                # ValueError, not just YAMLError: a scalar matching YAML's timestamp regex but not a
+                # real date ("2026-02-30") reaches datetime.date() and raises bare. Uncaught it kills
+                # the whole build over one page. Same pair _y below and clean's page._yaml catch.
                 return {}, text
     return {}, text
 

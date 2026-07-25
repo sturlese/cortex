@@ -45,6 +45,18 @@ def test_unparseable_frontmatter_still_indexes_body(tmp_path, corpus):
     assert any(h["path"] == "general/broken.md" for h in hits)
 
 
+def test_invalid_date_frontmatter_does_not_abort_the_refresh(tmp_path, corpus):
+    """An impossible-but-timestamp-shaped date raises a bare ValueError out of datetime.date(), not
+    a YAMLError. Uncaught, ONE such page aborted the whole refresh — every other page went unindexed
+    too. It must degrade to body-only like any other unparseable frontmatter."""
+    write_page(corpus.brain_md_dir, "general/baddate.md",
+               {"title": "x", "date": "2026-02-30"}, "findable needle body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)                     # must not raise
+    hits = retrieve.search(conn, "findable needle")
+    assert any(h["path"] == "general/baddate.md" for h in hits)
+
+
 def test_search_demotes_superseded_and_prefers_current(service):
     hits = service.search("globex quarterly report revenue")
     paths = [h["path"] for h in hits]
