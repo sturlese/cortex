@@ -130,3 +130,22 @@ def test_classify_pending_promotes_orphaned_duplicate(tmp_path):
     inventory["A"] = {"localPath": "a.pdf"}
     assert classify_pending(inventory, state, raw) == []  # B stays a duplicate, A missing on disk
 
+
+def test_classify_pending_promotes_a_duplicate_whose_canonical_changed(tmp_path):
+    """Same invariant, the other way the canonical can stop holding the shared content: its bytes
+    change. Only its DISAPPEARANCE used to orphan the duplicate, so an edit to the canonical left
+    the duplicate's content with no page and no route back — the duplicate's own bytes never change
+    again, and its canonical is still right there in the inventory."""
+    raw = str(tmp_path)
+    _touch(raw, "a.pdf", "shared")
+    _touch(raw, "b.pdf", "shared")
+    h = file_sha256(os.path.join(raw, "b.pdf"))
+    inventory = {"A": {"localPath": "a.pdf"}, "B": {"localPath": "b.pdf"}}
+    state = {"files": {"A": {"rawHash": h, "status": "processed"},
+                       "B": {"rawHash": h, "status": "duplicate", "duplicateOf": "A"}}}
+    assert classify_pending(inventory, state, raw) == []        # nothing changed yet
+
+    _touch(raw, "a.pdf", "the canonical moved on")
+    pending = classify_pending(inventory, state, raw)
+    assert sorted(p["fileId"] for p in pending) == ["A", "B"]   # today: ["A"] only
+

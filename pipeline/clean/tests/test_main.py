@@ -227,6 +227,99 @@ def test_run_once_dedups_against_previously_processed(env, monkeypatch):
     assert _state_of(env)["files"]["C"]["duplicateOf"] == "A"
 
 
+def test_dedup_never_points_a_duplicate_at_changed_content(env, monkeypatch):
+    """The invariant test_classify_pending_promotes_orphaned_duplicate states — "the content it
+    still holds gets its own page (otherwise it is lost forever)" — also has to hold when the
+    canonical's CONTENT changes, not only when the canonical leaves the inventory.
+
+    Pass 1 dedups B onto A. Then a.md is edited: A is pending with new bytes, and the old bytes
+    live only on b.md. B must get its own page, or that document is gone from the brain with no
+    error and no way back — B's bytes never change again, and its canonical stays in the
+    inventory forever."""
+    processed = []
+
+    async def ok(doc, *a, **kw):
+        processed.append(doc["fileId"])
+        return {"fileId": doc["fileId"], "skipped": False, "method": "text",
+                "path": f"general/{doc['fileId']}.md", "usage": {}}
+
+    monkeypatch.setattr(clean_main, "process_one", ok)
+    (env.raw / "b.md").write_text("doc a")            # identical to a.md
+    asyncio.run(run_once(env.cfg))
+    assert _state_of(env)["files"]["B"]["duplicateOf"] == "A"
+
+    processed.clear()
+    (env.raw / "a.md").write_text("doc a EDITED")     # the canonical's content moves on
+    stats = asyncio.run(run_once(env.cfg))
+
+    assert sorted(processed) == ["A", "B"], "B still holds the old bytes and must get its own page"
+    files = _state_of(env)["files"]
+    assert files["B"]["status"] == "processed"
+    assert files["B"].get("duplicateOf") is None
+    assert stats["duplicates"] == 0
+    # ...and it settles: no churn on the next pass
+    assert asyncio.run(run_once(env.cfg))["pending"] == 0
+
+
+def test_dedup_converges_when_a_canonical_of_several_duplicates_changes(env, monkeypatch):
+    """Convergence is what makes re-pending safe. Dedup exists to avoid LLM calls, so a fix that
+    re-pends duplicates it should not costs money on every pass forever. With THREE identical files,
+    editing the canonical must promote exactly ONE of the two duplicates and re-dedup the other onto
+    it — not give both pages, not leave both lost, and not oscillate. Reverting the canonical's bytes
+    must settle too."""
+    processed = []
+
+    async def ok(doc, *a, **kw):
+        processed.append(doc["fileId"])
+        return {"fileId": doc["fileId"], "skipped": False, "method": "text",
+                "path": f"general/{doc['fileId']}.md", "usage": {}}
+
+    monkeypatch.setattr(clean_main, "process_one", ok)
+    (env.raw / "b.md").write_text("doc a")
+    inv = json.loads((env.raw / "_state.json").read_text())
+    inv["files"]["C"] = {"name": "c.md", "localPath": "c.md", "drivePath": "/X/c.md"}
+    (env.raw / "_state.json").write_text(json.dumps(inv))
+    (env.raw / "c.md").write_text("doc a")            # A, B and C all identical
+    asyncio.run(run_once(env.cfg))
+    files = _state_of(env)["files"]
+    assert (files["B"]["status"], files["C"]["status"]) == ("duplicate", "duplicate")
+
+    (env.raw / "a.md").write_text("doc a EDITED")     # the canonical moves on
+    asyncio.run(run_once(env.cfg))
+    files = _state_of(env)["files"]
+    holders = [f for f in ("A", "B", "C") if files[f]["status"] == "processed"]
+    assert holders == ["A", "B"], files                # exactly one duplicate promoted
+    assert files["C"]["duplicateOf"] == "B"            # the other re-dedups onto it
+    assert asyncio.run(run_once(env.cfg))["pending"] == 0          # converged
+
+    (env.raw / "a.md").write_text("doc a")            # ...and reverting settles as well
+    asyncio.run(run_once(env.cfg))
+    assert _state_of(env)["files"]["A"]["duplicateOf"] == "B"
+    assert asyncio.run(run_once(env.cfg))["pending"] == 0
+
+
+def test_dedup_does_not_seed_the_index_with_a_changed_docs_old_hash(env, monkeypatch):
+    """The other half, one pass earlier: a doc pending BECAUSE its hash changed must not seed the
+    canonical index with the hash it no longer has. Otherwise a new doc carrying those old bytes is
+    filed as a duplicate of a document that does not serve them."""
+    async def ok(doc, *a, **kw):
+        return {"fileId": doc["fileId"], "skipped": False, "method": "text",
+                "path": f"general/{doc['fileId']}.md", "usage": {}}
+
+    monkeypatch.setattr(clean_main, "process_one", ok)
+    asyncio.run(run_once(env.cfg))                    # A and B processed, different content
+    inv = json.loads((env.raw / "_state.json").read_text())
+    inv["files"]["C"] = {"name": "c.md", "localPath": "c.md", "drivePath": "/X/c.md"}
+    (env.raw / "_state.json").write_text(json.dumps(inv))
+    (env.raw / "c.md").write_text("doc a")            # C carries A's ORIGINAL content
+    (env.raw / "a.md").write_text("doc a EDITED")     # ...which A no longer has
+
+    stats = asyncio.run(run_once(env.cfg))
+    files = _state_of(env)["files"]
+    assert files["C"]["status"] == "processed", "C holds content no other page serves"
+    assert stats["duplicates"] == 0
+
+
 def test_run_once_deletes_page_when_source_disappears(env, monkeypatch):
     async def fake_process_one(doc, processor, raw, out, catalog=None, **kw):
         rel = f"general/{doc['fileId']}.md"
