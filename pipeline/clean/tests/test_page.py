@@ -222,6 +222,23 @@ def test_build_page_type_cannot_forge_sibling_frontmatter_keys():
     assert fm["acl"] == ["finance"]
 
 
+def test_build_page_control_characters_keep_the_acl_readable():
+    """The quoted branch of _yaml claims it "always round-trips". It did not for control
+    characters: YAML rejects them literally even inside a double-quoted scalar (the reader refuses
+    the character stream before quoting can help), and folds \\x85 to a space. So a form feed in a
+    model-chosen type was enough to make the page unreadable and take its acl with it."""
+    import yaml
+
+    for hostile in ["report\x0csummary", "rep\x00ort", "report\x0bx", "report\x1bx",
+                    "report\x85acl: [all]"]:
+        out = _out(metadata=PageMetadata(title="Payroll", type=hostile, tags=[hostile]))
+        page = build_page(out, _lineage(name=hostile), {}, acl=["finance"])
+        fm = yaml.safe_load(page.split("\n---\n", 1)[0].removeprefix("---\n"))   # must not raise
+        assert fm["acl"] == ["finance"], hostile
+        assert fm["type"] == hostile, (hostile, fm["type"])
+        assert fm["tags"] == [hostile], hostile
+
+
 def test_build_page_date_round_trips_as_a_string():
     """A plain ISO date re-types to datetime.date on read; as_of goes through _yaml and stays a
     string, so unquoted `date` made the page's two date fields disagree in type downstream."""

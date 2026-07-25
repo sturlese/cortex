@@ -24,13 +24,17 @@ def test_split_no_frontmatter_and_bad_yaml():
     assert fm == {}
 
 
-def test_split_frontmatter_invalid_date_degrades_instead_of_crashing():
-    """An impossible-but-timestamp-shaped date matches YAML's implicit timestamp regex and raises a
-    bare ValueError out of datetime.date(), not a YAMLError. Uncaught, ONE such page aborted the
-    whole build in pass 1 — the docstring promises frontmatter = {} instead."""
-    for bad in ["2026-02-30", "2024-06-31", "0000-00-00", "2026-13-01"]:
-        text = f"---\ntype: report\ndate: {bad}\n---\nbody\n"
-        assert split_frontmatter(text) == ({}, text), bad
+def test_split_frontmatter_degrades_on_anything_unreadable():
+    """The docstring's promise is unconditional, and PyYAML's failures share no base class: an
+    impossible-but-timestamp-shaped date raises ValueError from datetime.date(), `!!bool maybe` a
+    KeyError, `!!timestamp hello` an AttributeError, deep nesting a RecursionError. Uncaught, ONE
+    such page aborted the build for the whole corpus in pass 1."""
+    bad_blocks = ["date: 2026-02-30", "date: 2024-06-31", "date: 0000-00-00", "date: 2026-13-01",
+                  "flag: !!bool maybe", "t: !!timestamp hello", "n: !!int 0x_zz",
+                  "a: " + "[" * 40000, ": : bad : yaml"]
+    for bad in bad_blocks:
+        text = f"---\ntype: report\n{bad}\n---\nbody\n"
+        assert split_frontmatter(text) == ({}, text), bad[:40]
 
 
 def test_page_mentions():
