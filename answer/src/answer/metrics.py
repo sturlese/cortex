@@ -29,7 +29,7 @@ def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None 
     `audiences` filters to rows whose document the client may see (None = unrestricted).
     A store with no `acl` column carries no audience information, so a SCOPED client gets nothing:
     unknown is not open — the same direction the page index takes for an unreadable acl."""
-    from answer.index import visible
+    from answer.index import visible_sql
     if not os.path.exists(_db(facts_dir)):
         return []
     where, args = ["verified = 1"], []
@@ -47,26 +47,16 @@ def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None 
     try:
         if audiences is not None and not _carries_acl(conn):
             return []
-        # The cap counts rows the client may SEE, so it cannot be a SQL LIMIT: an invisible row is
-        # not there, and a row that is not there must not occupy a slot. Capping in SQL and filtering
-        # afterwards let out-of-scope rows crowd out the visible tail — down to zero results for a
-        # scoped client while open rows it is entitled to existed. Stream the ordered cursor instead
-        # and stop once the cap is full; the WHERE clause still bounds how much can be scanned, and
-        # `visible` stays the single copy of the rule.
-        cur = conn.execute(f"SELECT * FROM observations WHERE {' AND '.join(where)}"
-                           " ORDER BY entity, metric, period, source_ref", args)
-        out = []
-        # `0 < limit <= len(out)` keeps SQL's LIMIT semantics exactly, which the old query had for
-        # free: 0 means no rows, negative means unlimited. Breaking on `len(out) >= limit` would
-        # have returned ONE row for both.
-        if limit != 0:
-            for r in cur:
-                row = dict(r)
-                if visible(row.get("acl"), audiences):
-                    out.append(row)
-                    if 0 < limit <= len(out):
-                        break
-        return out
+        # The scope goes in the WHERE, so LIMIT counts rows the client may SEE. Filtering after a SQL
+        # LIMIT let invisible rows consume slots and starve a scoped client to zero results, while
+        # dropping the LIMIT to filter in Python unbounds the sorter. See index.visible_sql.
+        acl_sql, acl_args = visible_sql("acl", audiences)
+        where.append(acl_sql)
+        args.extend(acl_args)
+        rows = conn.execute(
+            f"SELECT * FROM observations WHERE {' AND '.join(where)}"
+            " ORDER BY entity, metric, period, source_ref LIMIT ?", [*args, limit]).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 

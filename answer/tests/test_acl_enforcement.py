@@ -8,7 +8,7 @@ import re
 from tests.conftest import add_fact, write_page
 
 from answer import index, mcp_server, metrics, retrieve
-from answer.index import visible
+from answer.index import visible, visible_sql
 from answer.service import AnswerService
 
 
@@ -308,6 +308,32 @@ def test_a_comma_inside_a_label_cannot_widen_access(corpus):
     index.refresh(conn, corpus.brain_md_dir)
     ok = index.get_page(conn, "general/ok.md")["acl"]
     assert index.visible(ok, {"leadership"}) and not index.visible(ok, {"eng"})
+
+
+def test_visible_sql_agrees_with_visible(tmp_path):
+    """index.visible_sql is a second FORM of the one visibility rule, not a second rule — so the two
+    are proven identical over a truth table rather than trusted to stay in step. This repo has spent
+    five bugs on hand-mirrored ACL logic; a SQL copy only earns its place with this test.
+
+    Includes labels containing LIKE metacharacters (`%`, `_`, `\\`): unescaped, `%` would match
+    audiences nobody granted, which is the widening the predicate exists to prevent."""
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE t (acl TEXT)")
+    acls = [None, "", "finance", "finance,leadership", "eng", "fin", "financex",
+            "100%", "a_b", "back\\slash", "%", "_"]
+    conn.executemany("INSERT INTO t VALUES (?)", [(a,) for a in acls])
+    conn.commit()
+
+    scopes = [None, set(), {"finance"}, {"eng"}, {"finance", "eng"}, {"leadership"},
+              {"fin"}, {"100%"}, {"a_b"}, {"back\\slash"}, {"%"}, {"_"}, {"nothing"}]
+    for audiences in scopes:
+        sql, params = visible_sql("acl", audiences)
+        rows = conn.execute(f"SELECT acl FROM t WHERE {sql}", params).fetchall()
+        by_sql = sorted((r[0] for r in rows), key=lambda x: (x is None, x))
+        by_py = sorted((a for a in acls if visible(a, audiences)), key=lambda x: (x is None, x))
+        assert by_sql == by_py, (audiences, by_sql, by_py)
 
 
 def test_out_of_scope_rows_do_not_starve_a_scoped_client(corpus):

@@ -56,22 +56,16 @@ def search(conn: sqlite3.Connection, query: str, k: int = TOP_K,
     """Top-k pages for the query with contract-aware ranking. Hits carry `factors` (the applied
     adjustments) and a snippet. `include_superseded=False` drops stale versions entirely;
     `audiences` filters to pages the client may see (None = unrestricted)."""
-    from answer.index import visible
-    # The candidate pool counts pages the client may SEE, so it cannot be a SQL LIMIT: out-of-scope
-    # pages would consume slots and could crowd an open, matching page out of the pool entirely —
-    # a scoped client got zero hits while unrestricted got five. Stream the bm25-ordered cursor and
-    # take the best _POOL VISIBLE candidates; the FTS MATCH already bounds the scan.
-    cur = conn.execute(
+    from answer.index import visible_sql
+    # The scope goes in the WHERE, so the pool holds the best _POOL candidates the client may SEE.
+    # Capping first and filtering after let out-of-scope pages crowd an open, matching page out of
+    # the pool entirely — zero hits for a scoped client where unrestricted got five.
+    acl_sql, acl_args = visible_sql("p.acl", audiences)
+    rows = conn.execute(
         "SELECT p.*, bm25(pages_fts) AS bm25 FROM pages_fts"
         " JOIN pages p ON p.rowid = pages_fts.rowid"
-        " WHERE pages_fts MATCH ? ORDER BY bm25",
-        (_fts_query(query),))
-    rows = []
-    for r in cur:
-        if visible(dict(r).get("acl"), audiences):
-            rows.append(r)
-            if len(rows) >= _POOL:
-                break
+        f" WHERE pages_fts MATCH ? AND {acl_sql} ORDER BY bm25 LIMIT ?",
+        (_fts_query(query), *acl_args, _POOL)).fetchall()
     q_low = query.lower()
     q_tokens = set(re.findall(r"[a-z0-9][a-z0-9'-]*", q_low))
     periods = _query_periods(query)

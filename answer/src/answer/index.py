@@ -77,6 +77,30 @@ def visible(acl: str | None, audiences: set[str] | None) -> bool:
     return bool({a for a in acl.split(",") if a} & audiences)
 
 
+# `%`, `_` and the escape character itself are LIKE metacharacters: an audience label containing one
+# would otherwise match labels nobody granted.
+_LIKE_SPECIAL = str.maketrans({"\\": "\\\\", "%": "\\%", "_": "\\_"})
+
+
+def visible_sql(column: str, audiences: set[str] | None) -> tuple[str, list]:
+    """`visible` as a SQL predicate over a CSV acl column, so a query can apply the scope BEFORE its
+    LIMIT. Both orders of the naive alternatives are wrong: capping in SQL and filtering in Python
+    lets invisible rows consume slots and starve a scoped client to zero results, while dropping the
+    LIMIT to filter in Python unbounds the sorter (SQLite materialises the whole ORDER BY before
+    yielding row one, so nothing streams and an ordinary query walks the table).
+
+    This is a second FORM of the one rule, not a second rule: it lives beside visible() and
+    test_visible_sql_agrees_with_visible proves the two answer identically over a truth table."""
+    if audiences is None:
+        return "1", []                       # unrestricted: no predicate, no cost
+    terms, params = [f"{column} IS NULL"], []
+    for a in sorted(audiences):
+        # wrap in separators so a label matches at any position but never as a substring of another
+        terms.append(f"',' || {column} || ',' LIKE ? ESCAPE '\\'")
+        params.append("%," + str(a).translate(_LIKE_SPECIAL) + ",%")
+    return "(" + " OR ".join(terms) + ")", params
+
+
 _FM_BLOCK_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.S)
 # The page OPENS a frontmatter block: `---` on its own first line. A leading BOM (editors and
 # Windows tooling add one invisibly) and leading blank lines do not change the author's intent.
