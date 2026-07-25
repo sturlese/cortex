@@ -9,6 +9,8 @@ corpus read-only, emits JSON artifacts to a workdir. Each JSONL/inventory artifa
 
 ```
 enumerate-files   corpus/ -> files.jsonl            (path, size, mtime, md5; deterministic walk)
+                  fails (exit 2, no artifact) if any path is unreadable, naming all of them —
+                  absence from files.jsonl is how clean learns a document was deleted
 classify-files    files.jsonl -> classification.jsonl + matrix   (taxonomy rules engine)
 curate-manifest   classification -> manifest_full.jsonl          (IN+MAYBE, md5 dedup, canonical pick; taxonomy for trim-survival)
 trim-manifest     manifest_full -> manifest.jsonl                (drop non-documents + demoted types)
