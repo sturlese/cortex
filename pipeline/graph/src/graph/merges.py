@@ -227,7 +227,10 @@ def cli(argv=None) -> int:
     registry = load_registry(args.registry)
     chosen = proposals if args.index < 0 else [proposals[args.index]]
     for p in chosen:
-        apply_merge(registry, p["canonical_id"], p["canonical_name"], p["entity_type"], p["absorbs"])
+        # `log=print`: absorbing or retargeting somebody else's entity is a change the approver did
+        # not name, so it must appear in the output rather than only in the file's git diff.
+        apply_merge(registry, p["canonical_id"], p["canonical_name"], p["entity_type"], p["absorbs"],
+                    log=lambda msg: print(f"  note: {msg}"))
         print(f"approved: {p['canonical_name']} <- {', '.join(p['absorbs'])}")
     save_registry(args.registry, registry)
     remaining = [p for p in proposals if p not in chosen]
