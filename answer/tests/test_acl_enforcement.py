@@ -1,10 +1,12 @@
 """ACL enforcement: out-of-scope pages and facts simply don't exist for a scoped client."""
 import asyncio
 import dataclasses
+import inspect
+import re
 
 from tests.conftest import add_fact, write_page
 
-from answer import metrics
+from answer import mcp_server, metrics
 from answer.index import visible
 from answer.service import AnswerService
 
@@ -100,35 +102,63 @@ def test_known_metrics_are_scoped(corpus):
     assert finance.match_metric({"total", "compensation"}) == "total-compensation"
 
 
+# Every public read surface of AnswerService -> how to probe it for the restricted document of
+# _restricted_corpus. `refresh` is the one deliberate exclusion: it returns index-maintenance
+# counters, not content (see the test below, which pins that reasoning instead of waiving it).
+_LEAK_PROBES = {
+    "search": lambda s: any(h["path"] == "entities/acme/payroll.md" for h in s.search("acme payroll")),
+    # probe for the document, never for words the client itself supplied: these renderings echo the
+    # query back ("no results for: acme payroll"), so matching on "payroll" would flag the echo.
+    "search_text": lambda s: "entities/acme/payroll.md" in s.search_text("acme payroll")
+                             or "750000" in s.search_text("acme payroll"),
+    "get_page": lambda s: s.get_page("entities/acme/payroll.md") is not None,
+    "page_text": lambda s: "750000" in (s.page_text("entities/acme/payroll.md") or ""),
+    "query_metrics": lambda s: bool(s.query_metrics("total-compensation")),
+    "current_metric_rows": lambda s: bool(s.current_metric_rows("total-compensation", "acme")),
+    "known_entities": lambda s: "acme" in s.known_entities(),
+    "match_metric": lambda s: s.match_metric({"total", "compensation"}) is not None,
+    "metrics_text": lambda s: "total-compensation" in s.metrics_text(None, "acme")
+                              or "750000" in s.metrics_text(None, "acme"),
+    "ask": lambda s: "750000" in asyncio.run(s.ask("what is the total compensation for acme?"))["answer"],
+}
+_NOT_A_CONTENT_SURFACE = {"refresh"}
+
+
+def test_leak_probes_cover_every_public_service_surface():
+    """The checklist above is only worth anything if it is COMPLETE, so completeness is asserted
+    rather than assumed. `known_metrics` reached the service without being added to any such list,
+    which is exactly how it stayed unscoped — a hardcoded list would have been blind to it too.
+    Adding a public method to AnswerService fails here until it is either probed for leaks or
+    explicitly classified as not-a-content-surface."""
+    public = {n for n, v in inspect.getmembers(AnswerService)
+              if not n.startswith("_") and (inspect.isfunction(v) or inspect.iscoroutinefunction(v))}
+    assert public == set(_LEAK_PROBES) | _NOT_A_CONTENT_SURFACE, (
+        f"unclassified: {public - set(_LEAK_PROBES) - _NOT_A_CONTENT_SURFACE}; "
+        f"stale: {set(_LEAK_PROBES) | _NOT_A_CONTENT_SURFACE - public}")
+
+
 def test_no_public_read_surface_leaks_an_out_of_scope_document(corpus):
-    """The checklist, in one place: every public way to get data out of AnswerService, asserted
-    against the same restricted document. `known_metrics` was added to the service without being
-    added here, which is how it stayed unscoped — so a NEW read surface belongs in this list, and
-    a surface missing from it is the bug this test exists to catch."""
+    """The scope must hide the same restricted document through every surface at once — and the
+    client that holds the label must still reach it through every one of them, so an over-denying
+    "fix" cannot pass by hiding everything from everybody."""
     _restricted_corpus(corpus)
-    eng = _scoped(corpus, "eng")
-    leaks = []
-    if any(h["path"] == "entities/acme/payroll.md" for h in eng.search("acme payroll")):
-        leaks.append("search")
-    if eng.get_page("entities/acme/payroll.md") is not None:
-        leaks.append("get_page")
-    if eng.query_metrics("total-compensation"):
-        leaks.append("query_metrics")
-    if eng.current_metric_rows("total-compensation", "acme"):
-        leaks.append("current_metric_rows")
-    if "acme" in eng.known_entities():
-        leaks.append("known_entities")
-    if eng.match_metric({"total", "compensation"}) is not None:
-        leaks.append("match_metric")
-    if "total-compensation" in eng.metrics_text(None, "acme") or "750000" in eng.metrics_text(None, "acme"):
-        leaks.append("metrics_text")
-    if "750000" in asyncio.run(eng.ask("what is the total compensation for acme?"))["answer"]:
-        leaks.append("ask")
-    assert leaks == [], f"out-of-scope document reachable through: {leaks}"
-    # and the same surfaces DO serve the client that holds the label
-    finance = _scoped(corpus, "finance")
-    assert finance.query_metrics("total-compensation") and "acme" in finance.known_entities()
-    assert finance.match_metric({"total", "compensation"}) == "total-compensation"
+    eng, finance = _scoped(corpus, "eng"), _scoped(corpus, "finance")
+    assert [n for n, probe in _LEAK_PROBES.items() if probe(eng)] == []
+    assert [n for n, probe in _LEAK_PROBES.items() if not probe(finance)] == []
+
+
+def test_refresh_counts_are_index_maintenance_not_a_content_surface(corpus):
+    """The one surface excluded from the leak probes, with its reason pinned. refresh() reports what
+    the INDEX did — and the index deliberately holds every page, since one server instance serves
+    one scope. Its counters are therefore unscoped by construction, which is only acceptable while
+    no transport returns them to a client: mcp_server calls refresh() and discards the result. If
+    that ever changes, this becomes a count oracle over document existence and needs scoping."""
+    _restricted_corpus(corpus)
+    counts = _scoped(corpus, "eng").refresh()
+    assert counts["total"] >= len(_scoped(corpus).search(""))          # unscoped by construction
+    src = inspect.getsource(mcp_server)
+    assert "service.refresh()" in src or "svc.refresh()" in src
+    assert not re.search(r"return\s+[a-z_]*\.refresh\(\)", src)        # never handed to a client
 
 
 def test_ask_refuses_out_of_scope_but_answers_in_scope(corpus):

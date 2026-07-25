@@ -15,11 +15,20 @@ def _db(facts_dir: str) -> str:
     return os.path.join(facts_dir, FACTS_DB)
 
 
+def _carries_acl(conn: sqlite3.Connection) -> bool:
+    """Whether this store records audience labels at all. `acl` arrives through an additive
+    migration clean runs on its WRITE path (factstore); this package only reads facts.db and never
+    migrates it, so a store predating the ACL feature legitimately has no such column."""
+    return "acl" in {r[1] for r in conn.execute("PRAGMA table_info(observations)")}
+
+
 def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None = None,
                   period: str | None = None, limit: int = 50,
                   audiences: set | None = None) -> list[dict]:
     """Exact lookups: equality on metric/entity; period matches exactly or by year prefix.
-    `audiences` filters to rows whose document the client may see (None = unrestricted)."""
+    `audiences` filters to rows whose document the client may see (None = unrestricted).
+    A store with no `acl` column carries no audience information, so a SCOPED client gets nothing:
+    unknown is not open — the same direction the page index takes for an unreadable acl."""
     from answer.index import visible
     if not os.path.exists(_db(facts_dir)):
         return []
@@ -36,6 +45,8 @@ def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None 
     conn = sqlite3.connect(_db(facts_dir))
     conn.row_factory = sqlite3.Row
     try:
+        if audiences is not None and not _carries_acl(conn):
+            return []
         rows = conn.execute(
             f"SELECT * FROM observations WHERE {' AND '.join(where)}"
             " ORDER BY entity, metric, period, source_ref LIMIT ?", [*args, limit]).fetchall()
@@ -53,8 +64,9 @@ def known_metrics(facts_dir: str, entity: str | None = None,
     via the `entity` argument, that the entity does — on the empty-result path of metrics_text,
     i.e. precisely when the row filter just hid them.
 
-    `verified = 1` mirrors query_metrics / the pipeline's query_facts. factstore only ever inserts
-    verified rows, so this changes no result today; it keeps the hand-mirrored copies faithful."""
+    `verified = 1` matches query_metrics and the pipeline's query_facts. factstore inserts verified
+    rows only, so this changes no result today; it keeps the hand-mirrored read paths saying the
+    same thing."""
     from answer.index import visible
     if not os.path.exists(_db(facts_dir)):
         return []
@@ -64,16 +76,18 @@ def known_metrics(facts_dir: str, entity: str | None = None,
         args.append(entity.strip().lower())
     conn = sqlite3.connect(_db(facts_dir))
     try:
-        # `acl` is an additive migration clean applies on its WRITE path (factstore); this package
-        # only ever reads facts.db and must not assume the column exists. Naming it directly would
-        # raise OperationalError on a pre-ACL store, where query_metrics (SELECT *) degrades to
-        # "no acl -> open" instead. Same degradation here, so the two read paths stay symmetric.
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(observations)")}
-        acl_col = "acl" if "acl" in cols else "NULL AS acl"
+        if audiences is None:
+            # Unrestricted: nothing to filter, so don't read acl — which also keeps the query inside
+            # the covering index idx_obs_metric (adding a column to the SELECT costs a temp B-tree).
+            rows = conn.execute(f"SELECT DISTINCT metric FROM observations"
+                                f" WHERE {' AND '.join(where)}", args).fetchall()
+            return sorted({r[0] for r in rows})
+        if not _carries_acl(conn):
+            return []
         # acl comes back alongside so the scope is applied HERE, not by the caller: one metric may
         # be carried by several documents with different audiences, and it stays visible if ANY of
         # them is in scope.
-        rows = conn.execute(f"SELECT DISTINCT metric, {acl_col} FROM observations"
+        rows = conn.execute(f"SELECT DISTINCT metric, acl FROM observations"
                             f" WHERE {' AND '.join(where)}", args).fetchall()
         return sorted({r[0] for r in rows if visible(r[1], audiences)})
     finally:
