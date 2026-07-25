@@ -66,7 +66,7 @@ facts store schema.
 
 `tests/test_benchmark.py` — 3 tests covering the harness itself (generation and scoring
 mechanics). Run from this directory: `pytest -q`. The benchmark is included in the repo suite
-(421 tests total across seven packages).
+(434 tests total across seven packages).
 
 ## Common tasks
 
