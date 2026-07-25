@@ -61,10 +61,15 @@ def search(conn: sqlite3.Connection, query: str, k: int = TOP_K,
     # Capping first and filtering after let out-of-scope pages crowd an open, matching page out of
     # the pool entirely — zero hits for a scoped client where unrestricted got five.
     acl_sql, acl_args = visible_sql("p.acl", audiences)
+    # `include_superseded=False` also belongs in the WHERE, for the same reason the scope does: a
+    # page the caller has excluded must not occupy a candidate slot. Filtered after the cap, enough
+    # superseded versions ranking ahead crowded the current one out of the pool entirely — zero hits
+    # while a current matching page existed.
+    current_sql = "" if include_superseded else " AND p.superseded_by = ''"
     rows = conn.execute(
         "SELECT p.*, bm25(pages_fts) AS bm25 FROM pages_fts"
         " JOIN pages p ON p.rowid = pages_fts.rowid"
-        f" WHERE pages_fts MATCH ? AND {acl_sql} ORDER BY bm25 LIMIT ?",
+        f" WHERE pages_fts MATCH ? AND {acl_sql}{current_sql} ORDER BY bm25 LIMIT ?",
         (_fts_query(query), *acl_args, _POOL)).fetchall()
     q_low = query.lower()
     q_tokens = set(re.findall(r"[a-z0-9][a-z0-9'-]*", q_low))
@@ -73,9 +78,7 @@ def search(conn: sqlite3.Connection, query: str, k: int = TOP_K,
 
     hits = []
     for r in rows:
-        p = dict(r)                      # already ACL-filtered while building the pool above
-        if not include_superseded and p["superseded_by"]:
-            continue
+        p = dict(r)                      # the pool is already ACL- and current-filtered, in SQL
         adjustments: list[tuple[float, str]] = []
         if p["superseded_by"]:
             adjustments.append((_PENALTY_SUPERSEDED, "superseded"))

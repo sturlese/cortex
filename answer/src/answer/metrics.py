@@ -24,11 +24,14 @@ def _carries_acl(conn: sqlite3.Connection) -> bool:
 
 def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None = None,
                   period: str | None = None, limit: int = 50,
-                  audiences: set | None = None) -> list[dict]:
+                  audiences: set | None = None,
+                  exclude_pages: set[str] | None = None) -> list[dict]:
     """Exact lookups: equality on metric/entity; period matches exactly or by year prefix.
     `audiences` filters to rows whose document the client may see (None = unrestricted).
     A store with no `acl` column carries no audience information, so a SCOPED client gets nothing:
-    unknown is not open — the same direction the page index takes for an unreadable acl."""
+    unknown is not open — the same direction the page index takes for an unreadable acl.
+    `exclude_pages` drops rows carried by those pages BEFORE the cap — the caller's current-truth
+    filter, which cannot be applied afterwards without stale rows starving current ones out of it."""
     from answer.index import visible_sql
     if not os.path.exists(_db(facts_dir)):
         return []
@@ -42,6 +45,9 @@ def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None 
     if period:
         where.append("(period = ? OR period LIKE ?)")
         args.extend([period, f"{period}-%"])
+    if exclude_pages:
+        where.append(f"(page_path IS NULL OR page_path NOT IN ({','.join('?' * len(exclude_pages))}))")
+        args.extend(sorted(exclude_pages))
     conn = sqlite3.connect(_db(facts_dir))
     conn.row_factory = sqlite3.Row
     try:

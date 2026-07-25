@@ -92,6 +92,25 @@ def test_unreadable_frontmatter_is_not_served_as_open(tmp_path, corpus):
     assert index.get_page(conn, "general/plain.md")["acl"] is None
 
 
+def test_superseded_pages_do_not_starve_a_current_truth_search(tmp_path, corpus):
+    """`include_superseded=False` was applied AFTER the candidate pool was capped, so superseded
+    pages consumed slots and could crowd the current version out of the pool entirely — zero hits
+    while a current matching page exists. Same defect shape as the ACL cap-then-filter: a row that
+    the caller has excluded must not occupy a candidate slot."""
+    for i in range(45):                      # rank ahead by repeating the query terms
+        write_page(corpus.brain_md_dir, f"entities/acme/w{i}.md",
+                   {"title": f"widget detail {i}", "superseded_by": "drive:NEWER"},
+                   "widget detail widget detail widget detail body")
+    write_page(corpus.brain_md_dir, "general/widget-current.md", {"title": "notes"},
+               "widget detail appears once here")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    hits = retrieve.search(conn, "widget detail", include_superseded=False)
+    assert [h["path"] for h in hits] == ["general/widget-current.md"]     # today: []
+    # and with superseded included, the pool is unchanged
+    assert len(retrieve.search(conn, "widget detail", k=100)) == 40
+
+
 def test_search_demotes_superseded_and_prefers_current(service):
     hits = service.search("globex quarterly report revenue")
     paths = [h["path"] for h in hits]
