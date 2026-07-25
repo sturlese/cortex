@@ -6,7 +6,7 @@ import re
 
 from tests.conftest import add_fact, write_page
 
-from answer import mcp_server, metrics
+from answer import index, mcp_server, metrics
 from answer.index import visible
 from answer.service import AnswerService
 
@@ -196,6 +196,55 @@ def test_pre_fix_index_reencodes_empty_acl_as_open(tmp_path):
     conn.close()
     conn = index.connect(state)                      # migration must NOT fire again
     assert conn.execute("SELECT acl FROM pages WHERE path='empty.md'").fetchone()["acl"] == ""
+
+
+def test_an_acl_the_index_cannot_read_is_not_open(corpus):
+    """`refresh` honoured `acl` only when it was a YAML *list*; every other shape fell through to
+    NULL, i.e. "this page carries no ACL" — open. So the intuitive single-label form `acl: finance`
+    served a restricted page to everyone. The rule is already written down in
+    brain-page-contract.md: only a page with genuinely NO `acl` key is open; an `acl` you cannot
+    read is an `acl`, so it means restricted-to-nobody."""
+    shapes = {"scalar": "finance", "quoted": '"finance"', "blank": "''", "null": "null",
+              "mapping": "{finance: true}", "empty-list": "[]"}
+    for name, value in shapes.items():
+        write_page(corpus.brain_md_dir, f"general/{name}.md",
+                   {"title": name, "acl": value}, "confidential payroll body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    for name in shapes:
+        acl = index.get_page(conn, f"general/{name}.md")["acl"]
+        assert acl is not None, name                       # NULL would mean "open to everyone"
+        assert not index.visible(acl, {"eng"}), name
+        assert index.visible(acl, None), name              # unrestricted still sees it: discoverable
+    # a page that genuinely carries no acl key is still open — that is the one open case
+    write_page(corpus.brain_md_dir, "general/noacl.md", {"title": "x"}, "open body")
+    index.refresh(conn, corpus.brain_md_dir)
+    assert index.get_page(conn, "general/noacl.md")["acl"] is None
+
+
+def test_a_comma_inside_a_label_cannot_widen_access(corpus):
+    """Labels are CSV-serialised into one column, so `clean.acl._check_labels` rejects a comma
+    inside a label — "the exact silent-corruption failure mode an access-control config must not
+    have". The index re-derives the same encoding from page text and applied no such check, so
+    `acl: ["finance,eng"]` joined to "finance,eng" and `visible` split it back into TWO audiences,
+    granting eng. A label the encoding cannot represent makes the whole ACL unreadable."""
+    write_page(corpus.brain_md_dir, "general/csvlabel.md",
+               {"title": "x", "acl": '["finance,eng"]'}, "confidential payroll body")
+    write_page(corpus.brain_md_dir, "general/blanklabel.md",
+               {"title": "x", "acl": '["finance", "  "]'}, "confidential payroll body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    for name in ("csvlabel", "blanklabel"):
+        acl = index.get_page(conn, f"general/{name}.md")["acl"]
+        assert not index.visible(acl, {"eng"}), name
+        assert not index.visible(acl, {"finance"}), name   # unreadable, so nobody scoped — not eng, not finance
+        assert index.visible(acl, None), name
+    # a well-formed multi-label acl is unaffected
+    write_page(corpus.brain_md_dir, "general/ok.md",
+               {"title": "x", "acl": "[finance, leadership]"}, "body")
+    index.refresh(conn, corpus.brain_md_dir)
+    ok = index.get_page(conn, "general/ok.md")["acl"]
+    assert index.visible(ok, {"leadership"}) and not index.visible(ok, {"eng"})
 
 
 def test_settings_parse_audiences(monkeypatch):

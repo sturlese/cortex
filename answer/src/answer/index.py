@@ -84,6 +84,15 @@ def split_frontmatter(text: str) -> tuple[dict, str]:
     return {}, text
 
 
+def _label_ok(label) -> bool:
+    """Whether an audience label survives this index's CSV encoding. A comma would split one label
+    into two audiences at enforcement time — silently WIDENING access — and a blank label would
+    vanish in the round-trip. The pipeline's acl._check_labels rejects exactly these on the write
+    side; the index re-derives the same encoding from page text, so it must reject them too rather
+    than trust that whoever wrote the page ran that validation."""
+    return not isinstance(label, bool) and "," not in str(label) and bool(str(label).strip())
+
+
 def carries_frontmatter_block(text: str) -> bool:
     """True when the page OPENS a frontmatter block, whether or not it parses — the distinction
     split_frontmatter throws away (both cases give {}). refresh needs it to encode the acl: a page
@@ -125,13 +134,15 @@ def refresh(conn: sqlite3.Connection, brain_md_dir: str) -> dict:
         acl_list = fm.get("acl")
         # NULL = the page carries no acl (open); '' = it carries an EMPTY one (nobody) — the
         # CSV encoding must preserve that distinction or a restricted dossier is served open.
-        if isinstance(acl_list, list):
+        if isinstance(acl_list, list) and all(_label_ok(a) for a in acl_list):
             acl = ",".join(str(a) for a in acl_list)
-        elif not fm and carries_frontmatter_block(text):
-            # The block is present but unreadable, so this page's audience is UNKNOWN — and unknown
-            # must not resolve to open. '' is the "restricted to nobody" encoding: an unrestricted
-            # operator still sees the page (so the breakage is discoverable) while no scoped client
-            # does. NULL here would serve a page written as acl: [finance] to everyone.
+        elif "acl" in fm or (not fm and carries_frontmatter_block(text)):
+            # An acl this encoding cannot represent is still an acl, so the page's audience is
+            # UNKNOWN — and unknown must not resolve to open. '' is the "restricted to nobody"
+            # encoding: an unrestricted operator still sees the page (so the breakage is
+            # discoverable) while no scoped client does. NULL here would serve a page written as
+            # `acl: finance` — or as an unreadable block — to everyone. Only a page with genuinely
+            # no `acl` key is open, exactly as docs/pipeline/brain-page-contract.md states.
             acl = ""
         else:
             acl = None
