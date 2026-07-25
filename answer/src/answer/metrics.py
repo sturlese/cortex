@@ -47,10 +47,22 @@ def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None 
     try:
         if audiences is not None and not _carries_acl(conn):
             return []
-        rows = conn.execute(
-            f"SELECT * FROM observations WHERE {' AND '.join(where)}"
-            " ORDER BY entity, metric, period, source_ref LIMIT ?", [*args, limit]).fetchall()
-        return [dict(r) for r in rows if visible(dict(r).get("acl"), audiences)]
+        # The cap counts rows the client may SEE, so it cannot be a SQL LIMIT: an invisible row is
+        # not there, and a row that is not there must not occupy a slot. Capping in SQL and filtering
+        # afterwards let out-of-scope rows crowd out the visible tail — down to zero results for a
+        # scoped client while open rows it is entitled to existed. Stream the ordered cursor instead
+        # and stop once the cap is full; the WHERE clause still bounds how much can be scanned, and
+        # `visible` stays the single copy of the rule.
+        cur = conn.execute(f"SELECT * FROM observations WHERE {' AND '.join(where)}"
+                           " ORDER BY entity, metric, period, source_ref", args)
+        out = []
+        for r in cur:
+            row = dict(r)
+            if visible(row.get("acl"), audiences):
+                out.append(row)
+                if len(out) >= limit:
+                    break
+        return out
     finally:
         conn.close()
 

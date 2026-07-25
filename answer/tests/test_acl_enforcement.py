@@ -7,7 +7,7 @@ import re
 
 from tests.conftest import add_fact, write_page
 
-from answer import index, mcp_server, metrics
+from answer import index, mcp_server, metrics, retrieve
 from answer.index import visible
 from answer.service import AnswerService
 
@@ -308,6 +308,45 @@ def test_a_comma_inside_a_label_cannot_widen_access(corpus):
     index.refresh(conn, corpus.brain_md_dir)
     ok = index.get_page(conn, "general/ok.md")["acl"]
     assert index.visible(ok, {"leadership"}) and not index.visible(ok, {"eng"})
+
+
+def test_out_of_scope_rows_do_not_starve_a_scoped_client(corpus):
+    """The row cap was applied by SQL and the ACL filter in Python afterwards, so invisible rows
+    consumed slots in the cap. "An invisible page simply isn't there" (retrieve.py's own comment) —
+    a row that isn't there must not occupy a candidate slot. With enough out-of-scope rows sorting
+    ahead, a scoped client got ZERO results while open rows it is entitled to existed: a wrong
+    answer rather than a truncated one, and one that only afflicts scoped clients."""
+    for i in range(60):                       # 'acme' sorts before 'initech', so these come first
+        add_fact(corpus.facts_dir, file_id=f"F{i}", page_path="p", entity="acme", metric="arr-usd",
+                 metric_raw="ARR", value_raw=str(i), value_num=float(i), unit="usd",
+                 period=f"2026-{i % 12 + 1:02d}", source_ref=f"r{i}", acl="finance")
+    open_rows = ["480000", "495000", "512000"]
+    for i, v in enumerate(open_rows):
+        add_fact(corpus.facts_dir, file_id=f"O{i}", page_path="q", entity="zenith", metric="arr-usd",
+                 metric_raw="ARR", value_raw=v, value_num=float(v), unit="usd", period="2026-01",
+                 source_ref=f"o{i}", acl=None)
+    eng = metrics.query_metrics(corpus.facts_dir, "arr-usd", entity="zenith", audiences={"eng"})
+    assert [r["value_raw"] for r in eng] == open_rows        # today: []
+    assert len(metrics.query_metrics(corpus.facts_dir, "arr-usd", audiences={"eng"})) >= 3
+    # the cap still caps, counted in rows the client may actually see
+    assert len(metrics.query_metrics(corpus.facts_dir, "arr-usd", limit=2, audiences=None)) == 2
+    assert len(metrics.query_metrics(corpus.facts_dir, "arr-usd", limit=2, audiences={"eng"})) == 2
+
+
+def test_out_of_scope_pages_do_not_starve_a_scoped_search(corpus):
+    """Same defect on the page side: the FTS candidate pool was capped before the ACL filter, so
+    out-of-scope pages crowded an open one out of the pool entirely."""
+    for i in range(45):
+        write_page(corpus.brain_md_dir, f"entities/acme/w{i}.md",
+                   {"title": f"widget {i}", "acl": "[finance]"}, "widget detail body")
+    write_page(corpus.brain_md_dir, "general/widget-open.md", {"title": "widget open"},
+               "widget detail body open")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    hits = retrieve.search(conn, "widget detail", audiences={"eng"})
+    assert any(h["path"] == "general/widget-open.md" for h in hits)      # today: no hits at all
+    assert all(not h["path"].startswith("entities/acme/") for h in hits)
+    assert len(retrieve.search(conn, "widget detail", audiences=None)) > 0
 
 
 def test_settings_parse_audiences(monkeypatch):
