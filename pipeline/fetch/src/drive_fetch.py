@@ -430,7 +430,22 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
         # rename-cleanup below never unlinks the freshly written sidecar.
         if _clobbered_by_sidecar(cfg, fid, prev_local):
             prev_local = None
-        if prev and prev.get("fingerprint") == fp and prev_local and (cfg.raw_dir / prev_local).exists():
+        # The skip must also require the recorded path to be the name THIS config would write.
+        # `fingerprint` is modifiedTime|size|md5 — purely remote — so a local export-format change
+        # (GOOGLE_DOCS_FORMAT md -> pdf) is invisible to it, and comparing only "some file is at the
+        # recorded path" meant the switch did nothing, forever: no download, no log, no error, while
+        # clean kept converting the old export.
+        #
+        # Case-INSENSITIVE, for the same reason content_name and _clobbered_by_sidecar are: on a
+        # case-folding filesystem (macOS APFS, Windows, Docker Desktop bind mounts) `D.md` and `D.MD`
+        # are one file, so a case-only difference is not a format change. Treating it as one is
+        # actively harmful here — the download writes `D.MD`, then the rename cleanup below unlinks
+        # `D.md`, which is the SAME INODE, so the mirror loses the document for a whole poll interval.
+        # `GOOGLE_DOCS_FORMAT=MD` (a typo in the very knob this fixes) is enough to trigger it.
+        _, expected_local = content_name(cfg, d, mime, fid)
+        if (prev and prev.get("fingerprint") == fp and prev_local
+                and prev_local.lower() == expected_local.lower()
+                and (cfg.raw_dir / prev_local).exists()):
             # Backfill/refresh path metadata without redownloading unchanged files.
             touched = False
             for k, v in lineage.items():

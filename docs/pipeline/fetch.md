@@ -43,6 +43,6 @@ The OAuth `client_secret` also lives inside the volume — never in git.
 | `DRIVE_FOLDER` / `DRIVE_FOLDER_ID` | — | what to mirror (define one; id wins) |
 | `RAW_DIR` | `/data/raw` | mirror dir (raw-drive volume) |
 | `POLL_INTERVAL_SECONDS` | `1800` | loop cadence (`--once` for a single pass) |
-| `GOOGLE_DOCS_FORMAT` | `md` | export format for native Google Docs |
+| `GOOGLE_DOCS_FORMAT` | `md` | export format for native Google Docs. Changing it re-exports the affected files on the next pass — the skip compares the recorded filename against the one the current config would write, not just the remote fingerprint (case-insensitively, so `MD` is not a change from `md`) |
 | `GOG_ACCOUNT` | keyring default | gog account |
 | `GOG_ALL_DRIVES` | `true` | include shared drives |
