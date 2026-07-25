@@ -87,7 +87,9 @@ def _y(v) -> str:
 
 def render_node(entity: dict) -> str:
     """Entity node page (stub): frontmatter type/title/aliases + minimal body."""
-    fm = ["---", f"type: {entity['type']}", f"title: {_y(entity['title'])}"]
+    # type through _y like every other scalar: it comes from page_mentions, i.e. a raw string out of
+    # some page's frontmatter, NOT a validated Literal — a colon in it would break the node page.
+    fm = ["---", f"type: {_y(entity['type'])}", f"title: {_y(entity['title'])}"]
     aliases = [a for a in entity["aliases"] if a != entity["title"]]
     if aliases:
         fm.append("aliases: [" + ", ".join(_y(a) for a in aliases[:8]) + "]")

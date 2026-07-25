@@ -69,6 +69,18 @@ def test_render_node_hostile_names_stay_parseable():
     assert 'Joe "Bo" Smith' in fm["aliases"]
 
 
+def test_render_node_hostile_type_stays_parseable():
+    """`type` is not a validated Literal here: page_mentions lifts it as a raw string out of some
+    page's frontmatter, so it needs _y like the title does. Emitted raw, a colon in it made the node
+    page's own frontmatter unparseable and its title/aliases silently vanish."""
+    import yaml
+    s = render_node({"type": "person: exec", "title": "Alice",
+                     "aliases": ["Alice", "A. Smith"], "mentions": 2})
+    fm = yaml.safe_load(s.split("\n---\n", 1)[0].removeprefix("---\n"))
+    assert fm["type"] == "person: exec"
+    assert fm["title"] == "Alice"
+
+
 def test_render_node_yaml_implicit_typed_names_round_trip():
     """Entity names that look like YAML 1.1 implicit scalars -- ISO dates, hex/binary/underscored
     ints -- must survive the frontmatter round-trip as strings. Otherwise yaml.safe_load re-types

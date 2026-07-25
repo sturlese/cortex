@@ -57,6 +57,29 @@ def test_invalid_date_frontmatter_does_not_abort_the_refresh(tmp_path, corpus):
     assert any(h["path"] == "general/baddate.md" for h in hits)
 
 
+def test_unreadable_frontmatter_is_not_served_as_open(tmp_path, corpus):
+    """Degrading an unparseable page to body-only must not degrade its ACL to "open". Such a page
+    carries an audience nobody can read, so it gets '' — restricted to nobody, the same encoding as
+    a deliberately empty ACL: an unrestricted operator still sees it (the breakage stays
+    discoverable) but no scoped client does. NULL would mean "carries no acl" and serve a page
+    written as acl: [finance] to everyone."""
+    write_page(corpus.brain_md_dir, "entities/acme/payroll.md",
+               {"title": "Payroll", "date": "2026-02-30", "acl": "[finance]"},
+               "confidential needle payroll body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    assert index.get_page(conn, "entities/acme/payroll.md")["acl"] == ""
+    assert not index.visible("", {"finance"})                    # unknown audience, so not finance
+    assert not index.visible("", {"eng"})
+    assert index.visible("", None)                               # unrestricted operator still sees it
+    assert not any(h["path"] == "entities/acme/payroll.md"
+                   for h in retrieve.search(conn, "confidential needle", audiences={"eng"}))
+    # a page that genuinely carries no frontmatter at all stays open — that is not the same case
+    write_page(corpus.brain_md_dir, "general/plain.md", {"title": "Plain"}, "open needle body")
+    index.refresh(conn, corpus.brain_md_dir)
+    assert index.get_page(conn, "general/plain.md")["acl"] is None
+
+
 def test_search_demotes_superseded_and_prefers_current(service):
     hits = service.search("globex quarterly report revenue")
     paths = [h["path"] for h in hits]
