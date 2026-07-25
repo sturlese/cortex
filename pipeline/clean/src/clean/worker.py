@@ -156,6 +156,19 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
         facts_counts = {"kept": len(fact_rows), "rejected": len(rejected)}
         if rejected:
             facts_counts["rejected_reasons"] = [list(r) for r in rejected[:8]]
+    elif facts_dir and (facts_processor if method == "sheet" else prose_facts_processor):
+        # The extractor IS configured and the document still yielded nothing — its CONTENT no longer
+        # carries facts (the page dropped to `minimal`). factstore's contract is replace-per-document,
+        # so "no rows" has to mean the document has no rows; otherwise the previous pass's numbers
+        # stay behind pointing at a page that no longer contains them, and the answer layer serves a
+        # figure its own citation does not support. The `skipped` path above does this for the noise
+        # case; this is the same requirement for the other way of producing none.
+        #
+        # Deliberately NOT when the extractor is switched off (no processor passed): that is a config
+        # change, not a statement about the document, and turning CLEAN_FACTS_PROSE off to save cost
+        # must not silently wipe the store. Those rows go stale instead of disappearing — recoverable
+        # by turning it back on, where deletion would not be.
+        factstore.delete_facts(facts_dir, file_id)
 
     result = {
         "fileId": file_id,

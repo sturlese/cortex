@@ -329,6 +329,69 @@ def test_process_one_skipped_doc_clears_stale_facts(tmp_path):
     assert factstore.query_facts(fdir) == []                   # stale numbers gone
 
 
+def test_process_one_minimal_representation_clears_stale_facts(tmp_path):
+    """factstore's contract is replace-per-document: "a reprocess REPLACEs the document's
+    observations atomically". The `skipped` path enforces it — "a doc downgraded to noise must not
+    leave stale numbers behind" — but that is one of several ways a pass can produce no facts.
+
+    A prose doc re-judged `minimal` takes the same route: it yields no rows, so nothing replaced and
+    nothing deleted, and the previous pass's numbers stayed in the store with a page_path pointing at
+    a page that no longer carries them. The answer layer then serves a figure its own citation does
+    not contain."""
+    from tests.test_worker import FakeProcessor, _output
+
+    from clean.fake_llm import FakeProseFactsProcessor
+    from clean.worker import process_one
+
+    src = tmp_path / "Quarterly Report Q1 2026.md"
+    src.write_text(QUARTERLY)
+    doc = {"fileId": "FMIN", "path": str(src),
+           "entry": {"name": src.name, "drivePath": "/X/Clients/1. Globex/q.md",
+                     "orgUnit": "Clients", "sourceUri": "local://q"}}
+    fdir = str(tmp_path / "facts")
+    brain = str(tmp_path / "brain")
+
+    # pass 1: a full prose doc, so the prose facts agent runs and stores an observation
+    res = asyncio.run(process_one(doc, FakeProcessor(_output()), str(tmp_path), brain,
+                                  prose_facts_processor=FakeProseFactsProcessor(), facts_dir=fdir))
+    assert res["facts"]["kept"] >= 1
+    assert factstore.query_facts(fdir)
+
+    # pass 2: the same doc now judged `minimal` -> no rows this pass, so none may survive from before
+    res2 = asyncio.run(process_one(doc, FakeProcessor(_output(representation="minimal")),
+                                   str(tmp_path), brain,
+                                   prose_facts_processor=FakeProseFactsProcessor(), facts_dir=fdir))
+    assert res2["skipped"] is False
+    assert factstore.query_facts(fdir) == []          # today: the pass-1 rows are still here
+
+
+def test_switching_the_extractor_off_does_not_wipe_the_store(tmp_path):
+    """The other direction, and the reason the clear is conditional: producing no rows because the
+    extractor is SWITCHED OFF is a config change, not a statement about the document. Turning
+    CLEAN_FACTS_PROSE off to save cost must not silently destroy the facts store — those rows go
+    stale, which turning it back on repairs, where deletion would not."""
+    from tests.test_worker import FakeProcessor, _output
+
+    from clean.fake_llm import FakeProseFactsProcessor
+    from clean.worker import process_one
+
+    src = tmp_path / "Quarterly Report Q1 2026.md"
+    src.write_text(QUARTERLY)
+    doc = {"fileId": "FOFF", "path": str(src),
+           "entry": {"name": src.name, "drivePath": "/X/Clients/1. Globex/q.md",
+                     "orgUnit": "Clients", "sourceUri": "local://q"}}
+    fdir = str(tmp_path / "facts")
+    brain = str(tmp_path / "brain")
+
+    asyncio.run(process_one(doc, FakeProcessor(_output()), str(tmp_path), brain,
+                            prose_facts_processor=FakeProseFactsProcessor(), facts_dir=fdir))
+    assert factstore.query_facts(fdir)
+
+    # same document, same content — only the extractor is gone
+    asyncio.run(process_one(doc, FakeProcessor(_output()), str(tmp_path), brain, facts_dir=fdir))
+    assert factstore.query_facts(fdir), "a config change must not delete the document's facts"
+
+
 def test_process_one_without_facts_processor_is_unchanged(tmp_path):
     from tests.test_worker import FakeProcessor, _output
 
