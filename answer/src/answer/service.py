@@ -56,7 +56,7 @@ class AnswerService:
         and 'the ARR (usd)' all resolve. Most specific (most parts) wins."""
         expanded = set(q_tokens) | {p for t in q_tokens for p in str(t).split("-")}
         best = None
-        for m in metrics.known_metrics(self.settings.facts_dir, entity):
+        for m in metrics.known_metrics(self.settings.facts_dir, entity, self.audiences):
             parts = set(m.split("-"))
             if parts and parts <= expanded and (best is None or len(parts) > len(best.split("-"))):
                 best = m
@@ -104,7 +104,7 @@ class AnswerService:
                      ctx: SynthesisContext | None = None) -> str:
         rows = self.query_metrics(metric, entity, period)
         if not rows:
-            known = metrics.known_metrics(self.settings.facts_dir, entity)
+            known = metrics.known_metrics(self.settings.facts_dir, entity, self.audiences)
             return ("no observations for that query. known metrics"
                     + (f" for {entity}" if entity else "") + f": {', '.join(known) or '(none)'}")
         lines = []

@@ -4,6 +4,7 @@ import dataclasses
 
 from tests.conftest import add_fact, write_page
 
+from answer import metrics
 from answer.index import visible
 from answer.service import AnswerService
 
@@ -76,6 +77,58 @@ def test_query_metrics_filters_rows_and_entities(corpus):
     assert eng.query_metrics("arr-usd")                       # unlabeled facts stay open
     assert "acme" in finance.known_entities()
     assert "acme" not in eng.known_entities()                 # existence is scoped too
+
+
+def test_known_metrics_are_scoped(corpus):
+    """The metric vocabulary is a read path too, so it must be scoped like every other one
+    (answer/index.md, ADR 010: "even entity *existence* is scoped"). It is reached on the
+    EMPTY-result path of metrics_text — i.e. exactly when the ACL just hid the rows — so an
+    unscoped copy hands the scoped client the two facts the rest of the service hides: that
+    `acme` exists and that it has a `total-compensation` figure."""
+    _restricted_corpus(corpus)
+    finance, eng = _scoped(corpus, "finance"), _scoped(corpus, "eng")
+
+    assert "total-compensation" in metrics.known_metrics(corpus.facts_dir, audiences={"finance"})
+    assert "total-compensation" not in metrics.known_metrics(corpus.facts_dir, audiences={"eng"})
+    assert "arr-usd" in metrics.known_metrics(corpus.facts_dir, audiences={"eng"})   # open stays open
+    assert "total-compensation" in metrics.known_metrics(corpus.facts_dir)           # unrestricted
+
+    # the two service paths that reach it
+    assert "total-compensation" not in eng.metrics_text(None, "acme")
+    assert "total-compensation" in finance.metrics_text(None, "acme")
+    assert eng.match_metric({"total", "compensation"}) is None
+    assert finance.match_metric({"total", "compensation"}) == "total-compensation"
+
+
+def test_no_public_read_surface_leaks_an_out_of_scope_document(corpus):
+    """The checklist, in one place: every public way to get data out of AnswerService, asserted
+    against the same restricted document. `known_metrics` was added to the service without being
+    added here, which is how it stayed unscoped — so a NEW read surface belongs in this list, and
+    a surface missing from it is the bug this test exists to catch."""
+    _restricted_corpus(corpus)
+    eng = _scoped(corpus, "eng")
+    leaks = []
+    if any(h["path"] == "entities/acme/payroll.md" for h in eng.search("acme payroll")):
+        leaks.append("search")
+    if eng.get_page("entities/acme/payroll.md") is not None:
+        leaks.append("get_page")
+    if eng.query_metrics("total-compensation"):
+        leaks.append("query_metrics")
+    if eng.current_metric_rows("total-compensation", "acme"):
+        leaks.append("current_metric_rows")
+    if "acme" in eng.known_entities():
+        leaks.append("known_entities")
+    if eng.match_metric({"total", "compensation"}) is not None:
+        leaks.append("match_metric")
+    if "total-compensation" in eng.metrics_text(None, "acme") or "750000" in eng.metrics_text(None, "acme"):
+        leaks.append("metrics_text")
+    if "750000" in asyncio.run(eng.ask("what is the total compensation for acme?"))["answer"]:
+        leaks.append("ask")
+    assert leaks == [], f"out-of-scope document reachable through: {leaks}"
+    # and the same surfaces DO serve the client that holds the label
+    finance = _scoped(corpus, "finance")
+    assert finance.query_metrics("total-compensation") and "acme" in finance.known_entities()
+    assert finance.match_metric({"total", "compensation"}) == "total-compensation"
 
 
 def test_ask_refuses_out_of_scope_but_answers_in_scope(corpus):

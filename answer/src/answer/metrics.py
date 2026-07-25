@@ -44,18 +44,32 @@ def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None 
         conn.close()
 
 
-def known_metrics(facts_dir: str, entity: str | None = None) -> list[str]:
-    """Distinct metric ids (optionally for one entity) — lets agents/users discover vocabulary."""
+def known_metrics(facts_dir: str, entity: str | None = None,
+                  audiences: set | None = None) -> list[str]:
+    """Distinct metric ids (optionally for one entity) — lets agents/users discover vocabulary.
+    `audiences` scopes it exactly like query_metrics: the vocabulary is a read path too, and the
+    ACL scope must filter every one of them (ADR 010: "even entity *existence* is scoped"). A
+    metric only out-of-scope documents mention would otherwise disclose both that it exists and,
+    via the `entity` argument, that the entity does — on the empty-result path of metrics_text,
+    i.e. precisely when the row filter just hid them.
+
+    `verified = 1` mirrors query_metrics / the pipeline's query_facts. factstore only ever inserts
+    verified rows, so this changes no result today; it keeps the hand-mirrored copies faithful."""
+    from answer.index import visible
     if not os.path.exists(_db(facts_dir)):
         return []
+    where, args = ["verified = 1"], []
+    if entity:
+        where.append("entity = ?")
+        args.append(entity.strip().lower())
     conn = sqlite3.connect(_db(facts_dir))
     try:
-        if entity:
-            rows = conn.execute("SELECT DISTINCT metric FROM observations WHERE entity = ?"
-                                " ORDER BY metric", (entity.strip().lower(),)).fetchall()
-        else:
-            rows = conn.execute("SELECT DISTINCT metric FROM observations ORDER BY metric").fetchall()
-        return [r[0] for r in rows]
+        # acl comes back alongside so the scope is applied here, not by the caller: one metric may
+        # be carried by several documents with different audiences, and it stays visible if ANY of
+        # them is in scope.
+        rows = conn.execute(f"SELECT DISTINCT metric, acl FROM observations"
+                            f" WHERE {' AND '.join(where)}", args).fetchall()
+        return sorted({r[0] for r in rows if visible(r[1], audiences)})
     finally:
         conn.close()
 
