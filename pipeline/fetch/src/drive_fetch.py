@@ -41,6 +41,18 @@ from pathlib import Path
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
 
+# Other connectors' id namespaces (ADR 011: several connectors may share one raw dir, and each
+# manages ONLY the ids it owns). This module owns the un-namespaced Drive ids; a Drive inventory can
+# never return one of these, so "absent from the listing" does not mean "deleted" for them.
+# A NEW CONNECTOR MUST ADD ITS PREFIX HERE, or its entries get deleted on the next fetch pass.
+# The mirror of slackexport.sync's `f.startswith("slack-")` deletion scope.
+FOREIGN_ID_PREFIXES = ("slack-", "local-")
+
+
+def owns(file_id: str) -> bool:
+    """True when this connector is responsible for the manifest entry (i.e. it is a Drive id)."""
+    return not file_id.startswith(FOREIGN_ID_PREFIXES)
+
 
 @dataclass(frozen=True)
 class Config:
@@ -367,8 +379,11 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
     # Sanity brake: rc=0 with zero items while we hold prior state is almost always a gog/API glitch
     # (empty stdout, an envelope shape _items doesn't recognize, a trashed root), NOT a real mass
     # deletion — refuse rather than wipe the whole mirror (which clean would then propagate).
-    if not items and manifest:
-        raise GogError(f"inventory returned 0 items but the manifest has {len(manifest)} entries — "
+    # Counts only OWNED entries: an empty Drive folder beside a raw dir that holds another
+    # connector's entries is not a mass deletion, and those entries are never deleted here anyway.
+    owned = [fid for fid in manifest if owns(fid)]
+    if not items and owned:
+        raise GogError(f"inventory returned 0 items but the manifest has {len(owned)} Drive entries — "
                        "refusing to treat this as a mass deletion")
     lineage_by_id = build_lineage(cfg, items, folder_id)
 
@@ -430,10 +445,12 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
         changed += 1 if prev else 0
         added += 0 if prev else 1
 
-    # deletions: in the manifest but no longer in the folder
+    # deletions: in the manifest but no longer in the folder — among the ids WE own. Another
+    # connector's entry is never in a Drive listing, so deleting on absence would wipe its files
+    # (and clean would then propagate that into page + facts deletion). See FOREIGN_ID_PREFIXES.
     removed = 0
     for fid in list(manifest):
-        if fid not in seen:
+        if fid not in seen and owns(fid):
             remove_local(cfg, manifest[fid], fid)
             del manifest[fid]
             removed += 1

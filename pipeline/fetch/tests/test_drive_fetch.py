@@ -233,6 +233,48 @@ def test_sync_once_skips_unchanged_and_propagates_deletes(sync_env):
     assert "B" not in json.loads((tmp_path / "_state.json").read_text())["files"]
 
 
+def test_sync_once_preserves_foreign_inventory_entries(sync_env):
+    """ADR 011: several connectors can share one raw dir, each managing only the ids it owns. A
+    Drive inventory can never contain a slack-*/local-* id, so treating "not in the Drive listing"
+    as "deleted from Drive" wiped the other connectors' files and entries — and clean propagated
+    that into page + facts deletion. slackexport.sync already scopes its own deletions this way."""
+    cfg, tmp_path, fake = sync_env
+    df.sync_once(cfg, "root")
+    (tmp_path / "slack").mkdir()
+    (tmp_path / "slack" / "general-2026-01.md").write_text("slack content")
+    state = json.loads((tmp_path / "_state.json").read_text())
+    state["files"]["slack-general-2026-01"] = {
+        "name": "general 2026-01", "localPath": "slack/general-2026-01.md",
+        "drivePath": "/Slack/general/2026-01.md", "mimeType": "text/markdown"}
+    state["files"]["local-abc123def456"] = {
+        "name": "handbook.pdf", "localPath": "handbook.pdf", "drivePath": "/Ops/handbook.pdf"}
+    (tmp_path / "handbook.pdf").write_text("corpus content")
+    (tmp_path / "_state.json").write_text(json.dumps(state))
+
+    stats = df.sync_once(cfg, "root")
+    assert stats["removed"] == 0
+    manifest = json.loads((tmp_path / "_state.json").read_text())["files"]
+    assert "slack-general-2026-01" in manifest and "local-abc123def456" in manifest
+    assert (tmp_path / "slack" / "general-2026-01.md").exists()
+    assert (tmp_path / "handbook.pdf").exists()
+    # Drive ids it DOES own still get deleted — clause 3 keeps working
+    del fake.items[2]
+    assert df.sync_once(cfg, "root")["removed"] == 1
+    assert "B" not in json.loads((tmp_path / "_state.json").read_text())["files"]
+
+
+def test_mass_deletion_brake_counts_only_owned_entries(sync_env):
+    """An empty Drive folder beside a raw dir holding only another connector's entries is not a
+    mass deletion — the brake must not raise on entries it would never delete anyway."""
+    cfg, tmp_path, fake = sync_env
+    state = {"files": {"slack-general-2026-01": {
+        "name": "general", "localPath": "slack/general-2026-01.md"}}}
+    (tmp_path / "_state.json").write_text(json.dumps(state))
+    fake.items.clear()
+    assert df.sync_once(cfg, "root")["removed"] == 0            # today: GogError "mass deletion"
+    assert "slack-general-2026-01" in json.loads((tmp_path / "_state.json").read_text())["files"]
+
+
 def test_sync_once_backfills_lineage_without_download(sync_env):
     cfg, tmp_path, fake = sync_env
     df.sync_once(cfg, "root")

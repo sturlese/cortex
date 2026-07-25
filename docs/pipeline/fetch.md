@@ -15,6 +15,9 @@ Deterministic, stdlib-only, no LLM. Strict boundary: it never writes Markdown an
    `<fileId>.json` metadata sidecar carrying the reconstructed `drivePath` (lineage for clean);
    `.json` content lands as `<fileId>.data.json` so it can't collide with its sidecar.
 5. Files that disappeared from Drive are deleted from `raw/` and the manifest — deletions propagate.
+   Only among the Drive ids this connector owns: entries belonging to other connectors
+   (`slack-…`, `local-…`) in a shared raw dir are never touched (ADR 011). A new connector must add
+   its id prefix to `FOREIGN_ID_PREFIXES`.
 
 Unchanged files still get their path metadata backfilled (cheap) so lineage improves without
 re-downloads.
