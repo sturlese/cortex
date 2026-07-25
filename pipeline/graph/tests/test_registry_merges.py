@@ -77,6 +77,72 @@ def test_apply_merge_and_save_roundtrip(tmp_path):
     assert again.entities["globex"]["aliases"].count("Globex Corp") == 1
 
 
+def test_apply_merge_absorbs_an_already_registered_entity(tmp_path):
+    """A merge that absorbs names belonging to an EXISTING entity left that entity in place, so the
+    saved file had two entities each claiming the same alias. load_registry resolves that by
+    last-writer-wins over cid order, so whether the human's approved merge survived depended on how
+    the two ids happened to sort — here it is reverted outright."""
+    path = str(tmp_path / "entity-registry.json")
+    json.dump({"entities": {"globex-industries": {"name": "Globex Industries",
+                                                  "type": "organization", "aliases": ["Globex"]}}},
+              open(path, "w"))
+    reg = load_registry(path)
+    apply_merge(reg, "globex", "Globex", "organization", ["Globex", "Globex Industries"])
+
+    # IN MEMORY first: `merges approve` applies every chosen proposal against one registry before
+    # saving once, so a later proposal sees this state. An absorbed id must not still resolve to the
+    # entity that was just deleted, or the next apply_merge reasons about a phantom.
+    assert reg.canonical_id("globex-industries") == "globex"
+    assert reg.entities.get("globex-industries") is None
+
+    save_registry(path, reg)
+    again = load_registry(path)
+
+    assert list(again.entities) == ["globex"]                     # today: both, contradicting
+    assert again.canonical_id("Globex") == "globex"               # today: "globex-industries"
+    assert again.canonical_id("Globex Industries") == "globex"
+    assert "Globex Industries" in again.entities["globex"]["aliases"]
+    # the absorbed entity keeps answering to everything it used to, including its old ID: normalize
+    # keeps hyphens, so the slug is a different key from the display name and would otherwise be lost
+    assert again.canonical_id("globex-industries") == "globex"
+
+
+def test_apply_merge_absorbing_the_other_direction_also_settles(tmp_path):
+    """The mirror case, where the absorbed entity's id sorts FIRST: the merge appeared to survive on
+    main but still left a self-contradictory file, and the curated entity's own display name became
+    orphaned from its alias. Both names must resolve to the approved canonical."""
+    path = str(tmp_path / "entity-registry.json")
+    json.dump({"entities": {"acme": {"name": "Acme", "type": "organization",
+                                     "aliases": ["Acme Holdings"]}}}, open(path, "w"))
+    reg = load_registry(path)
+    apply_merge(reg, "zeta-acme", "Zeta Acme", "organization", ["Acme", "Acme Holdings"])
+    save_registry(path, reg)
+    again = load_registry(path)
+
+    assert list(again.entities) == ["zeta-acme"]
+    for name in ("Acme", "Acme Holdings", "Zeta Acme"):
+        assert again.canonical_id(name) == "zeta-acme", name
+
+
+def test_apply_merge_leaves_unrelated_entities_alone(tmp_path):
+    """Absorption must be driven by the names in the merge, not by proximity: an entity sharing no
+    name with the merge keeps its own id, aliases and resolution."""
+    path = str(tmp_path / "entity-registry.json")
+    json.dump({"entities": {"initech": {"name": "Initech", "type": "company",
+                                        "aliases": ["Initech SL"]},
+                            "globex-industries": {"name": "Globex Industries",
+                                                  "type": "organization", "aliases": ["Globex"]}}},
+              open(path, "w"))
+    reg = load_registry(path)
+    apply_merge(reg, "globex", "Globex", "organization", ["Globex", "Globex Industries"])
+    save_registry(path, reg)
+    again = load_registry(path)
+
+    assert sorted(again.entities) == ["globex", "initech"]
+    assert again.canonical_id("Initech SL") == "initech"
+    assert again.entities["initech"]["aliases"] == ["Initech SL"]
+
+
 def test_build_graph_with_registry_writes_canonical_node(tmp_path):
     brain = tmp_path / "brain"
     (brain / "entities/g").mkdir(parents=True)

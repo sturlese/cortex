@@ -39,6 +39,18 @@ class Registry:
         return e.get("type") if e else None
 
 
+def _reindex(reg: Registry) -> Registry:
+    """Rebuild by_alias from entities — the one place that mapping is derived. Building it
+    incrementally leaves entries pointing at ids that no longer exist once an entity is absorbed."""
+    reg.by_alias = {}
+    for cid, e in reg.entities.items():
+        for alias in (cid, e["name"], *e["aliases"]):
+            key = normalize(str(alias))
+            if key:
+                reg.by_alias[key] = cid
+    return reg
+
+
 def load_registry(path: str | None) -> Registry:
     """Missing path/file -> empty registry (the graph works unregistered); malformed -> error,
     loudly — a broken identity file must never silently degrade to wrong entities."""
@@ -55,11 +67,7 @@ def load_registry(path: str | None) -> Registry:
             raise ValueError(f"registry {path}: entity {cid!r} needs at least a 'name'")
         reg.entities[cid] = {"name": e["name"], "type": e.get("type", "organization"),
                              "aliases": list(e.get("aliases", []))}
-        for alias in (cid, e["name"], *e.get("aliases", [])):
-            key = normalize(str(alias))
-            if key:
-                reg.by_alias[key] = cid
-    return reg
+    return _reindex(reg)
 
 
 def save_registry(path: str, reg: Registry) -> None:
@@ -75,14 +83,33 @@ def save_registry(path: str, reg: Registry) -> None:
 
 def apply_merge(reg: Registry, canonical_id: str, canonical_name: str, entity_type: str,
                 absorbed_names: list[str]) -> Registry:
-    """Fold `absorbed_names` into `canonical_id` (creating it if new). Pure bookkeeping — the
-    JUDGMENT that these are the same entity happened upstream (merges.py + a human)."""
+    """Fold `absorbed_names` into `canonical_id` (creating it if new), absorbing any already-
+    registered entity that owns one of those names. Pure bookkeeping — the JUDGMENT that these are
+    the same entity happened upstream (merges.py + a human).
+
+    Absorbing the other ENTITY, not just its names, is what makes the result survive a save/load.
+    Leaving it in place wrote a file where two entities each claimed the same alias, and
+    load_registry resolves that by last-writer-wins over cid order — so whether the human's approved
+    merge stood depended on how the two ids happened to sort. `globex` absorbing `globex-industries`
+    was reverted outright by the next load; the other direction kept the merge but orphaned the
+    curated entity's own display name from its alias, and emitted two nodes for one declared
+    entity."""
     e = reg.entities.setdefault(canonical_id, {"name": canonical_name, "type": entity_type, "aliases": []})
     for name in absorbed_names:
         if name != e["name"] and name not in e["aliases"]:
             e["aliases"].append(name)
-    for alias in (canonical_id, e["name"], *e["aliases"]):
-        key = normalize(str(alias))
-        if key:
-            reg.by_alias[key] = canonical_id
-    return reg
+    claimed = {normalize(str(n)) for n in (canonical_id, e["name"], *absorbed_names)} - {""}
+    for cid in [c for c in reg.entities if c != canonical_id]:
+        other = reg.entities[cid]
+        keys = {normalize(str(a)) for a in (cid, other["name"], *other["aliases"])} - {""}
+        if not keys & claimed:
+            continue                       # shares no name with the merge: not ours to touch
+        # its id too, not only its display names: normalize keeps hyphens, so the slug `globex-
+        # industries` is a DIFFERENT key from the name `globex industries`. Dropping it would stop a
+        # reference written as the old id from resolving at all — an absorbed entity should keep
+        # answering to everything it used to.
+        for name in (cid, other["name"], *other["aliases"]):
+            if name != e["name"] and name not in e["aliases"]:
+                e["aliases"].append(name)
+        del reg.entities[cid]
+    return _reindex(reg)
