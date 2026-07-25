@@ -434,11 +434,17 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
         # `fingerprint` is modifiedTime|size|md5 — purely remote — so a local export-format change
         # (GOOGLE_DOCS_FORMAT md -> pdf) is invisible to it, and comparing only "some file is at the
         # recorded path" meant the switch did nothing, forever: no download, no log, no error, while
-        # clean kept converting the old export. Exact comparison: this path is always written from
-        # content_name, so any difference is a real change, and a hand-edited manifest that differs
-        # only in case costs one re-download and then records the canonical name.
+        # clean kept converting the old export.
+        #
+        # Case-INSENSITIVE, for the same reason content_name and _clobbered_by_sidecar are: on a
+        # case-folding filesystem (macOS APFS, Windows, Docker Desktop bind mounts) `D.md` and `D.MD`
+        # are one file, so a case-only difference is not a format change. Treating it as one is
+        # actively harmful here — the download writes `D.MD`, then the rename cleanup below unlinks
+        # `D.md`, which is the SAME INODE, so the mirror loses the document for a whole poll interval.
+        # `GOOGLE_DOCS_FORMAT=MD` (a typo in the very knob this fixes) is enough to trigger it.
         _, expected_local = content_name(cfg, d, mime, fid)
-        if (prev and prev.get("fingerprint") == fp and prev_local == expected_local
+        if (prev and prev.get("fingerprint") == fp and prev_local
+                and prev_local.lower() == expected_local.lower()
                 and (cfg.raw_dir / prev_local).exists()):
             # Backfill/refresh path metadata without redownloading unchanged files.
             touched = False

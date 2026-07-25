@@ -353,6 +353,41 @@ def test_changing_the_export_format_re_downloads(sync_env):
     assert fake.downloads == [] and stats2["skipped"] == 3
 
 
+def test_a_case_only_name_difference_is_not_a_format_change(sync_env):
+    """The expected-name check must be case-INSENSITIVE, like content_name and
+    _clobbered_by_sidecar. On a case-folding filesystem `D.md` and `D.MD` are one file, so treating a
+    case-only difference as a format change is worse than missing it: the download writes `D.MD`, and
+    the rename cleanup then unlinks `D.md` — the SAME INODE — leaving the mirror without the document
+    for a whole poll interval. `GOOGLE_DOCS_FORMAT=MD`, a typo in the very knob this check exists for,
+    is enough to trigger it."""
+    cfg, tmp_path, fake = sync_env
+    fake.items.append({"id": "D", "name": "a doc", "modifiedTime": "t1", "parents": ["folder1"],
+                       "mimeType": "application/vnd.google-apps.document"})
+    df.sync_once(cfg, "root")
+    assert (tmp_path / "D.md").exists()
+    fake.downloads.clear()
+
+    stats = df.sync_once(dataclasses.replace(cfg, docs_format="MD"), "root")
+    assert fake.downloads == [], "a case-only difference must not re-export"
+    assert stats["skipped"] == 3
+    # the decisive assertion: the document is still IN the mirror
+    assert (tmp_path / "D.md").exists()
+
+
+def test_a_recorded_path_missing_from_disk_re_downloads(sync_env):
+    """The `.exists()` half of the skip: a manifest entry whose file is gone must re-download. It
+    limits any name-comparison mistake to a single cycle instead of a permanent silent absence, so it
+    is load-bearing rather than belt-and-braces — and nothing pinned it."""
+    cfg, tmp_path, fake = sync_env
+    df.sync_once(cfg, "root")
+    fake.downloads.clear()
+    (tmp_path / "A.pdf").unlink()          # the mirror lost the content, manifest still records it
+
+    stats = df.sync_once(cfg, "root")
+    assert fake.downloads == ["A"]
+    assert (tmp_path / "A.pdf").exists() and stats["skipped"] == 1
+
+
 def test_sync_once_backfills_lineage_without_download(sync_env):
     cfg, tmp_path, fake = sync_env
     df.sync_once(cfg, "root")
