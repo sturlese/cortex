@@ -331,6 +331,11 @@ def test_out_of_scope_rows_do_not_starve_a_scoped_client(corpus):
     # the cap still caps, counted in rows the client may actually see
     assert len(metrics.query_metrics(corpus.facts_dir, "arr-usd", limit=2, audiences=None)) == 2
     assert len(metrics.query_metrics(corpus.facts_dir, "arr-usd", limit=2, audiences={"eng"})) == 2
+    # ...with SQL's LIMIT semantics, which the old query had for free: 0 = none, negative =
+    # unlimited. A `len(out) >= limit` break would have returned ONE row for both.
+    assert metrics.query_metrics(corpus.facts_dir, "arr-usd", limit=0) == []
+    unlimited = metrics.query_metrics(corpus.facts_dir, "arr-usd", limit=-1)
+    assert len(unlimited) > len(metrics.query_metrics(corpus.facts_dir, "arr-usd", limit=50))
 
 
 def test_out_of_scope_pages_do_not_starve_a_scoped_search(corpus):

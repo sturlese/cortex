@@ -56,12 +56,16 @@ def query_metrics(facts_dir: str, metric: str | None = None, entity: str | None 
         cur = conn.execute(f"SELECT * FROM observations WHERE {' AND '.join(where)}"
                            " ORDER BY entity, metric, period, source_ref", args)
         out = []
-        for r in cur:
-            row = dict(r)
-            if visible(row.get("acl"), audiences):
-                out.append(row)
-                if len(out) >= limit:
-                    break
+        # `0 < limit <= len(out)` keeps SQL's LIMIT semantics exactly, which the old query had for
+        # free: 0 means no rows, negative means unlimited. Breaking on `len(out) >= limit` would
+        # have returned ONE row for both.
+        if limit != 0:
+            for r in cur:
+                row = dict(r)
+                if visible(row.get("acl"), audiences):
+                    out.append(row)
+                    if 0 < limit <= len(out):
+                        break
         return out
     finally:
         conn.close()
