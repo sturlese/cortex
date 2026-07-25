@@ -216,6 +216,8 @@ async def run_once(cfg: Settings) -> dict:
                     vinfo += " · self-corrected"
                 if fx:
                     vinfo += f" · facts {fx.get('kept', 0)}"
+                    if fx.get("cleared"):
+                        vinfo += f" (cleared {fx['cleared']} stale)"
                 log(f"OK {res.get('path') or 'skipped'} ({res.get('method')}/{rep}){vinfo}{tinfo}")
             except Exception as ex:  # noqa: BLE001
                 if is_rate_limit(ex):
