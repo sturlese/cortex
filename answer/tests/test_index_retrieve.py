@@ -45,6 +45,53 @@ def test_unparseable_frontmatter_still_indexes_body(tmp_path, corpus):
     assert any(h["path"] == "general/broken.md" for h in hits)
 
 
+def test_invalid_date_frontmatter_does_not_abort_the_refresh(tmp_path, corpus):
+    """An impossible-but-timestamp-shaped date raises a bare ValueError out of datetime.date(), not
+    a YAMLError. Uncaught, ONE such page aborted the whole refresh — every other page went unindexed
+    too. It must degrade to body-only like any other unparseable frontmatter."""
+    write_page(corpus.brain_md_dir, "general/baddate.md",
+               {"title": "x", "date": "2026-02-30"}, "findable needle body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)                     # must not raise
+    hits = retrieve.search(conn, "findable needle")
+    assert any(h["path"] == "general/baddate.md" for h in hits)
+
+
+def test_refresh_survives_every_kind_of_unreadable_frontmatter(tmp_path, corpus):
+    """PyYAML's failures share no base class — an impossible date raises ValueError, `!!bool maybe` a
+    KeyError, `!!timestamp hello` an AttributeError, deep nesting a RecursionError. Any of them
+    escaping aborts the refresh for EVERY page, not just the bad one."""
+    for i, bad in enumerate(["2026-02-30", "!!bool maybe", "!!timestamp hello", "[" * 40000]):
+        write_page(corpus.brain_md_dir, f"general/bad{i}.md", {"title": "x", "junk": bad}, "junk body")
+    write_page(corpus.brain_md_dir, "general/healthy.md", {"title": "ok"}, "findable needle body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)                     # must not raise
+    assert any(h["path"] == "general/healthy.md" for h in retrieve.search(conn, "findable needle"))
+
+
+def test_unreadable_frontmatter_is_not_served_as_open(tmp_path, corpus):
+    """Degrading an unparseable page to body-only must not degrade its ACL to "open". Such a page
+    carries an audience nobody can read, so it gets '' — restricted to nobody, the same encoding as
+    a deliberately empty ACL: an unrestricted operator still sees it (the breakage stays
+    discoverable) but no scoped client does. NULL would mean "carries no acl" and serve a page
+    written as acl: [finance] to everyone."""
+    write_page(corpus.brain_md_dir, "entities/acme/payroll.md",
+               {"title": "Payroll", "date": "2026-02-30", "acl": "[finance]"},
+               "confidential needle payroll body")
+    conn = index.connect(corpus.state_dir)
+    index.refresh(conn, corpus.brain_md_dir)
+    assert index.get_page(conn, "entities/acme/payroll.md")["acl"] == ""
+    assert not index.visible("", {"finance"})                    # unknown audience, so not finance
+    assert not index.visible("", {"eng"})
+    assert index.visible("", None)                               # unrestricted operator still sees it
+    assert not any(h["path"] == "entities/acme/payroll.md"
+                   for h in retrieve.search(conn, "confidential needle", audiences={"eng"}))
+    # a page that genuinely carries no frontmatter at all stays open — that is not the same case
+    write_page(corpus.brain_md_dir, "general/plain.md", {"title": "Plain"}, "open needle body")
+    index.refresh(conn, corpus.brain_md_dir)
+    assert index.get_page(conn, "general/plain.md")["acl"] is None
+
+
 def test_search_demotes_superseded_and_prefers_current(service):
     hits = service.search("globex quarterly report revenue")
     paths = [h["path"] for h in hits]

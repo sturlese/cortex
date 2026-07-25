@@ -62,17 +62,34 @@ def visible(acl: str | None, audiences: set[str] | None) -> bool:
     return bool({a for a in acl.split(",") if a} & audiences)
 
 
+_FM_BLOCK_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.S)
+
+
 def split_frontmatter(text: str) -> tuple[dict, str]:
     """(frontmatter dict, body); tolerant — an unparseable page indexes as body-only."""
     if text.startswith("---"):
-        m = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.S)
+        m = _FM_BLOCK_RE.match(text)
         if m:
             try:
                 fm = yaml.safe_load(m.group(1)) or {}
                 return (fm if isinstance(fm, dict) else {}), m.group(2)
-            except yaml.YAMLError:
+            except Exception:
+                # Unconditional, because the promise above is unconditional and PyYAML's failures do
+                # not share a base class: "2026-02-30" raises ValueError from datetime.date(),
+                # `!!bool maybe` a KeyError, `!!timestamp hello` an AttributeError, deep nesting a
+                # RecursionError. Enumerating types here is the hand-maintained-list trap the _yaml
+                # writers avoid by round-tripping instead. One unreadable page must never abort the
+                # refresh for every other page. Scope is one safe_load, so nothing else is masked.
                 return {}, text
     return {}, text
+
+
+def carries_frontmatter_block(text: str) -> bool:
+    """True when the page OPENS a frontmatter block, whether or not it parses — the distinction
+    split_frontmatter throws away (both cases give {}). refresh needs it to encode the acl: a page
+    with no block carries no ACL and is open; a page whose block is unreadable has an ACL nobody
+    can read, and must not be mistaken for the first case."""
+    return bool(text.startswith("---") and _FM_BLOCK_RE.match(text))
 
 
 def _mentions_text(fm: dict) -> str:
@@ -108,7 +125,16 @@ def refresh(conn: sqlite3.Connection, brain_md_dir: str) -> dict:
         acl_list = fm.get("acl")
         # NULL = the page carries no acl (open); '' = it carries an EMPTY one (nobody) — the
         # CSV encoding must preserve that distinction or a restricted dossier is served open.
-        acl = ",".join(str(a) for a in acl_list) if isinstance(acl_list, list) else None
+        if isinstance(acl_list, list):
+            acl = ",".join(str(a) for a in acl_list)
+        elif not fm and carries_frontmatter_block(text):
+            # The block is present but unreadable, so this page's audience is UNKNOWN — and unknown
+            # must not resolve to open. '' is the "restricted to nobody" encoding: an unrestricted
+            # operator still sees the page (so the breakage is discoverable) while no scoped client
+            # does. NULL here would serve a page written as acl: [finance] to everyone.
+            acl = ""
+        else:
+            acl = None
         row = (
             rel, str(fm.get("title", "") or ""), str(fm.get("type", "") or ""),
             str(fm.get("entity", "") or ""), str(fm.get("unit", "") or ""),

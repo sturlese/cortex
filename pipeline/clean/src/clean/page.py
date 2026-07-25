@@ -31,6 +31,13 @@ FRONTMATTER_RE = re.compile(r"^---\n(.*?\n)---\n?", re.S)
 # change here must be mirrored there.
 _PLAIN_YAML = re.compile(r"[A-Za-z0-9][\w .\-/]*", re.UNICODE)
 
+# Control characters YAML refuses to carry literally, even inside a double-quoted scalar (the reader
+# rejects them at the character-stream level, before quoting can help) — plus \x85/NEL and the C1
+# range, which it silently folds to a space. \t \n \r are escaped explicitly below, so they are
+# excluded here. Without this the quoted branch does NOT always round-trip, and a control character
+# in a model-chosen value makes the whole page unreadable. Mirror in graph's pages._y.
+_CTRL_YAML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
 
 def _yaml(v) -> str:
     s = str(v)
@@ -45,6 +52,7 @@ def _yaml(v) -> str:
             pass
     esc = (s.replace("\\", "\\\\").replace('"', '\\"')
            .replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r"))
+    esc = _CTRL_YAML.sub(lambda m: f"\\x{ord(m.group()):02x}", esc)
     return f'"{esc}"'
 
 
@@ -76,9 +84,12 @@ def build_page(out: ProcessorOutput, lineage: dict, entity: dict = None, verific
     method = lineage.get("method", "")
     source_format = SOURCE_FORMAT.get(method, "other")
     ent = entity or {}
-    fm = ["---", f"type: {m.type}", f"title: {_yaml(m.title)}"]
+    # type and date are free-form model strings (schemas.PageMetadata), so they go through _yaml
+    # like every other scalar: emitted plain, a colon or newline in either breaks the WHOLE block,
+    # and a consumer that parses no frontmatter reads no acl — i.e. serves the page to everyone.
+    fm = ["---", f"type: {_yaml(m.type)}", f"title: {_yaml(m.title)}"]
     if m.date:
-        fm.append(f"date: {m.date}")
+        fm.append(f"date: {_yaml(m.date)}")
     if as_of:
         # content validity time, at the finest PROVABLE granularity (verify.provable_as_of / the
         # entity's path period) — the answer layer ranks current truth with this.

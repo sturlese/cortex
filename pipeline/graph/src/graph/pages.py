@@ -13,7 +13,12 @@ def split_frontmatter(text: str):
         if m:
             try:
                 return (yaml.safe_load(m.group(1)) or {}), m.group(2)
-            except yaml.YAMLError:
+            except Exception:
+                # Unconditional, because the promise above is unconditional and PyYAML's failures do
+                # not share a base class: "2026-02-30" raises ValueError from datetime.date(),
+                # `!!bool maybe` a KeyError, `!!timestamp hello` an AttributeError, deep nesting a
+                # RecursionError. Uncaught, ONE such page kills the build for the whole corpus in
+                # pass 1. Scope is a single safe_load, so no real defect is masked.
                 return {}, text
     return {}, text
 
@@ -58,6 +63,11 @@ def rewrite_doc(text: str, entities: dict, registry=None) -> str:
 
 _PLAIN_YAML = re.compile(r"[A-Za-z0-9][\w .\-/]*", re.UNICODE)
 
+# Control characters YAML refuses to carry literally even inside a double-quoted scalar (the reader
+# rejects them before quoting can help), plus \x85/NEL and the C1 range, which it folds to a space.
+# \t \n \r are escaped explicitly below. Hand-mirrored from clean's page._CTRL_YAML.
+_CTRL_YAML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
 
 def _y(v) -> str:
     """Emit a YAML-safe scalar: plain only when it round-trips through the loader, else an escaped
@@ -79,12 +89,15 @@ def _y(v) -> str:
             pass
     esc = (s.replace("\\", "\\\\").replace('"', '\\"')
            .replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r"))
+    esc = _CTRL_YAML.sub(lambda m: f"\\x{ord(m.group()):02x}", esc)
     return f'"{esc}"'
 
 
 def render_node(entity: dict) -> str:
     """Entity node page (stub): frontmatter type/title/aliases + minimal body."""
-    fm = ["---", f"type: {entity['type']}", f"title: {_y(entity['title'])}"]
+    # type through _y like every other scalar: it comes from page_mentions, i.e. a raw string out of
+    # some page's frontmatter, NOT a validated Literal — a colon in it would break the node page.
+    fm = ["---", f"type: {_y(entity['type'])}", f"title: {_y(entity['title'])}"]
     aliases = [a for a in entity["aliases"] if a != entity["title"]]
     if aliases:
         fm.append("aliases: [" + ", ".join(_y(a) for a in aliases[:8]) + "]")

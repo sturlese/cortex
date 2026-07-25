@@ -24,6 +24,19 @@ def test_split_no_frontmatter_and_bad_yaml():
     assert fm == {}
 
 
+def test_split_frontmatter_degrades_on_anything_unreadable():
+    """The docstring's promise is unconditional, and PyYAML's failures share no base class: an
+    impossible-but-timestamp-shaped date raises ValueError from datetime.date(), `!!bool maybe` a
+    KeyError, `!!timestamp hello` an AttributeError, deep nesting a RecursionError. Uncaught, ONE
+    such page aborted the build for the whole corpus in pass 1."""
+    bad_blocks = ["date: 2026-02-30", "date: 2024-06-31", "date: 0000-00-00", "date: 2026-13-01",
+                  "flag: !!bool maybe", "t: !!timestamp hello", "n: !!int 0x_zz",
+                  "a: " + "[" * 40000, ": : bad : yaml"]
+    for bad in bad_blocks:
+        text = f"---\ntype: report\n{bad}\n---\nbody\n"
+        assert split_frontmatter(text) == ({}, text), bad[:40]
+
+
 def test_page_mentions():
     ms = page_mentions(DOC)
     assert ("Initech", "company") in ms
@@ -58,6 +71,18 @@ def test_render_node_hostile_names_stay_parseable():
     fm = yaml.safe_load(s.split("\n---\n", 1)[0].removeprefix("---\n"))
     assert fm["title"] == "@AcmeCorp"
     assert 'Joe "Bo" Smith' in fm["aliases"]
+
+
+def test_render_node_hostile_type_stays_parseable():
+    """`type` is not a validated Literal here: page_mentions lifts it as a raw string out of some
+    page's frontmatter, so it needs _y like the title does. Emitted raw, a colon in it made the node
+    page's own frontmatter unparseable and its title/aliases silently vanish."""
+    import yaml
+    s = render_node({"type": "person: exec", "title": "Alice",
+                     "aliases": ["Alice", "A. Smith"], "mentions": 2})
+    fm = yaml.safe_load(s.split("\n---\n", 1)[0].removeprefix("---\n"))
+    assert fm["type"] == "person: exec"
+    assert fm["title"] == "Alice"
 
 
 def test_render_node_yaml_implicit_typed_names_round_trip():

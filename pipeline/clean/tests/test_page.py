@@ -188,6 +188,69 @@ def test_build_page_yaml_implicit_typed_scalars_round_trip():
         assert fm["tags"] == [hostile], (hostile, fm["tags"])
 
 
+def test_build_page_hostile_type_and_date_keep_the_acl_readable():
+    """`type` and `date` are free-form model strings (schemas.PageMetadata), so they must round-trip
+    through _yaml like every other scalar. Emitted plain, a colon in either makes the WHOLE block
+    unparseable — and a consumer that reads no frontmatter reads no acl, which the answer layer
+    encodes as NULL, i.e. visible to every client. A restricted page must never be served open
+    because the model picked an awkward type."""
+    import yaml
+
+    out = _out(metadata=PageMetadata(title="Payroll", type="report: draft", date="unknown: n/a"))
+    page = build_page(out, _lineage(), {}, acl=["finance"])
+    fm = yaml.safe_load(page.split("\n---\n", 1)[0].removeprefix("---\n"))   # must not raise
+    assert fm["acl"] == ["finance"]
+    assert fm["type"] == "report: draft"
+    assert fm["date"] == "unknown: n/a"
+
+
+def test_build_page_type_cannot_forge_sibling_frontmatter_keys():
+    """A newline in `type` must stay inside the value, not open frontmatter lines the model controls.
+    `type` is the FIRST key, so a forged `acl` loses to the genuine one emitted later (last key
+    wins) — but the trust-layer keys clean does not emit for this page have no such protection:
+    forging `verification: verified` claims the deterministic verifier passed a page it never saw,
+    and `entity`/`superseded_by` reattribute and poison the version chain."""
+    import yaml
+
+    forged = 'note\nverification: verified\nentity: globex\nsuperseded_by: "drive:rival"'
+    out = _out(metadata=PageMetadata(title="Payroll", type=forged))
+    page = build_page(out, _lineage(), {}, acl=["finance"])
+    fm = yaml.safe_load(page.split("\n---\n", 1)[0].removeprefix("---\n"))
+    assert fm["type"] == forged                 # the whole thing is ONE scalar
+    assert "verification" not in fm             # no verdict the trust layer never issued
+    assert "entity" not in fm and "superseded_by" not in fm
+    assert fm["acl"] == ["finance"]
+
+
+def test_build_page_control_characters_keep_the_acl_readable():
+    """The quoted branch of _yaml claims it "always round-trips". It did not for control
+    characters: YAML rejects them literally even inside a double-quoted scalar (the reader refuses
+    the character stream before quoting can help), and folds \\x85 to a space. So a form feed in a
+    model-chosen type was enough to make the page unreadable and take its acl with it."""
+    import yaml
+
+    for hostile in ["report\x0csummary", "rep\x00ort", "report\x0bx", "report\x1bx",
+                    "report\x85acl: [all]"]:
+        out = _out(metadata=PageMetadata(title="Payroll", type=hostile, tags=[hostile]))
+        page = build_page(out, _lineage(name=hostile), {}, acl=["finance"])
+        fm = yaml.safe_load(page.split("\n---\n", 1)[0].removeprefix("---\n"))   # must not raise
+        assert fm["acl"] == ["finance"], hostile
+        assert fm["type"] == hostile, (hostile, fm["type"])
+        assert fm["tags"] == [hostile], hostile
+
+
+def test_build_page_date_round_trips_as_a_string():
+    """A plain ISO date re-types to datetime.date on read; as_of goes through _yaml and stays a
+    string, so unquoted `date` made the page's two date fields disagree in type downstream."""
+    import yaml
+
+    page = build_page(_out(metadata=PageMetadata(title="T", type="report", date="2026-03-14")),
+                      _lineage(), {}, as_of="2026-03-14")
+    fm = yaml.safe_load(page.split("\n---\n", 1)[0].removeprefix("---\n"))
+    assert fm["date"] == "2026-03-14"
+    assert fm["date"] == fm["as_of"]
+
+
 def test_build_page_no_spurious_alias_for_long_entity_names():
     """entity_aliases must appear only when the display name genuinely differs from its slug.
     The old page-local slugify (capped at 80 chars) disagreed with entity.py's uncapped one on

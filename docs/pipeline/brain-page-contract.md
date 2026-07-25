@@ -7,7 +7,7 @@ brain server and by MCP clients — treat it as an API.
 ---
 type: meeting-notes                  # kebab-case doc type (LLM-chosen)
 title: Q1 board minutes
-date: 2026-03-14                     # content date (optional, LLM-proposed)
+date: "2026-03-14"                   # content date (optional, LLM-proposed) — quoted: read it as a string
 as_of: 2026-03                       # content validity time at the finest PROVABLE granularity
 supersedes: "drive:1OldDoc"          # this page is the CURRENT version of that document
 superseded_by: "drive:1NewDoc"       # a newer version exists — prefer it for current truth
@@ -47,6 +47,17 @@ mentions:                            # unresolved entities — the graph stage l
 
 ...body...
 ```
+
+Every model-supplied scalar (`type`, `title`, `date`, `tags`, mention names, …) is emitted plain only
+when it provably round-trips through `yaml.safe_load` as the identical string, and double-quoted
+otherwise. So a value carrying a colon or newline can never break the block, and `date` reads back as
+a **string**, not a `datetime.date`.
+
+Parse tolerantly anyway — pages written before that guarantee are still on disk. An unparseable block
+must degrade to body-only, never raise (note that an impossible date like `2026-02-30` raises
+`ValueError`, not `YAMLError`). But degrade the **content**, not the permissions: a page whose block
+you cannot read has an `acl` you cannot read, so treat it as restricted-to-nobody rather than open.
+Only a page with genuinely no `acl` key is open.
 
 ## How a client should read it
 
