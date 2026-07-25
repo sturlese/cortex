@@ -69,6 +69,30 @@ def test_known_metrics(corpus):
     assert metrics.known_metrics("/nonexistent") == []
 
 
+def test_pre_acl_facts_db_serves_unrestricted_but_never_a_scoped_client(tmp_path):
+    """`acl` is an additive migration clean applies on its WRITE path; this package only reads
+    facts.db, so a store clean has not re-touched since the ACL feature has no such column. Neither
+    read path may raise on it — and neither may treat "this store records no audience information"
+    as "everything is open", which is the direction the page index takes for an acl it cannot read.
+    An unrestricted instance (the only legitimate producer of such a store) is unaffected."""
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "facts.db"))
+    conn.executescript(
+        "CREATE TABLE observations (file_id TEXT NOT NULL, page_path TEXT, entity TEXT,"
+        " org_unit TEXT, metric TEXT NOT NULL, metric_raw TEXT NOT NULL, value_raw TEXT NOT NULL,"
+        " value_num REAL, unit TEXT, period TEXT, dimension TEXT, source_ref TEXT NOT NULL,"
+        " extracted_at TEXT NOT NULL, verified INTEGER NOT NULL DEFAULT 1);")
+    conn.execute("INSERT INTO observations VALUES ('F','p','acme','u','arr-usd','ARR','1',1.0,"
+                 "'usd','2026','d','r','t',1)")
+    conn.commit()
+    conn.close()
+
+    assert metrics.known_metrics(str(tmp_path)) == ["arr-usd"]              # unrestricted: unchanged
+    assert len(metrics.query_metrics(str(tmp_path))) == 1
+    assert metrics.known_metrics(str(tmp_path), audiences={"eng"}) == []     # scoped: unknown != open
+    assert metrics.query_metrics(str(tmp_path), audiences={"eng"}) == []
+
+
 def test_annotate_superseded():
     rows = [{"page_path": "a.md"}, {"page_path": "b.md"}, {"page_path": None}]
     out = metrics.annotate_superseded(rows, {"a.md"})
