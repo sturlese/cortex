@@ -4,8 +4,9 @@ Narrative doc: [`docs/pipeline/fetch.md`](../../docs/pipeline/fetch.md). This fi
 
 ## Purpose
 
-Mirrors a Google Drive folder tree into `raw/` incrementally, with deletions propagating. No LLM,
-no interpretation: it produces the inventory contract every downstream stage keys off.
+Mirrors a Google Drive folder tree into `raw/` incrementally, with deletions propagating for the
+Drive ids it owns. No LLM, no interpretation: it produces the inventory contract every downstream
+stage keys off.
 
 ## Key entry points
 
@@ -36,8 +37,11 @@ no interpretation: it produces the inventory contract every downstream stage key
 - Do not add an LLM, classification or content parsing here — this stage only mirrors bytes.
 - Do not call the `gog` CLI directly; go through `gog()` so errors and JSON parsing stay uniform.
 - Do not skip deletion handling: a file gone remotely must be removed locally *and* in state, or
-  stale pages linger downstream forever.
-- Do not mutate `raw/` from any other package — `fetch` (or `slack`) is its single writer.
+  stale pages linger downstream forever. But delete only what `owns()` attributes to this
+  connector — a shared raw dir also holds `slack-…`/`local-…` entries, and deleting one of those
+  takes its page and facts rows down with it (ADR 011 clause 2).
+- Do not mutate another connector's entries in `raw/_state.json`; several connectors may share the
+  dir, each managing only its own ids.
 - Do not store credentials in code or state; auth is the `gog` keyring's job.
 
 ## Data & contracts

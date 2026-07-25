@@ -243,9 +243,12 @@ def test_sync_once_preserves_foreign_inventory_entries(sync_env):
     (tmp_path / "slack").mkdir()
     (tmp_path / "slack" / "general-2026-01.md").write_text("slack content")
     state = json.loads((tmp_path / "_state.json").read_text())
+    # slack DOES fingerprint what it mirrors, so only the namespace marks this one as foreign
     state["files"]["slack-general-2026-01"] = {
         "name": "general 2026-01", "localPath": "slack/general-2026-01.md",
-        "drivePath": "/Slack/general/2026-01.md", "mimeType": "text/markdown"}
+        "drivePath": "/Slack/general/2026-01.md", "orgUnit": "general",
+        "sourceUri": "slack://general/2026-01", "mimeType": "text/markdown",
+        "fingerprint": "abc123"}
     state["files"]["local-abc123def456"] = {
         "name": "handbook.pdf", "localPath": "handbook.pdf", "drivePath": "/Ops/handbook.pdf"}
     (tmp_path / "handbook.pdf").write_text("corpus content")
@@ -261,6 +264,48 @@ def test_sync_once_preserves_foreign_inventory_entries(sync_env):
     del fake.items[2]
     assert df.sync_once(cfg, "root")["removed"] == 1
     assert "B" not in json.loads((tmp_path / "_state.json").read_text())["files"]
+
+
+def test_sync_once_preserves_a_corpus_entry_keyed_by_a_real_drive_id(sync_env):
+    """The prefix test alone is not enough. corpus's build-inventory keys an entry by a REAL Drive id
+    whenever --drive-ids supplies one (`key = fid or _stable_key(rel)`), and its inventory.json
+    becomes a raw _state.json in the demo, the evals and the benchmark. Such an entry is
+    indistinguishable from ours by name — but corpus does no change detection, so it carries no
+    fingerprint, and that is what marks it as somebody else's."""
+    cfg, tmp_path, fake = sync_env
+    df.sync_once(cfg, "root")
+    drive_id = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"     # 44 chars, no namespace prefix
+    (tmp_path / "Ops").mkdir()
+    (tmp_path / "Ops" / "handbook.pdf").write_text("corpus content")
+    state = json.loads((tmp_path / "_state.json").read_text())
+    state["files"][drive_id] = {                                   # exactly what build_inventory emits
+        "name": "handbook.pdf", "localPath": "Ops/handbook.pdf", "drivePath": "Ops/handbook.pdf",
+        "sourceUri": f"https://drive.google.com/file/d/{drive_id}/view", "orgUnit": "ops",
+        "mimeType": "application/pdf"}
+    (tmp_path / "_state.json").write_text(json.dumps(state))
+
+    stats = df.sync_once(cfg, "root")
+    assert stats["removed"] == 0
+    assert drive_id in json.loads((tmp_path / "_state.json").read_text())["files"]
+    assert (tmp_path / "Ops" / "handbook.pdf").exists()
+
+
+def test_sync_once_still_deletes_a_realistically_shaped_drive_id(sync_env):
+    """Guards the ownership test against being accidentally too broad: an id we really do own —
+    long, hyphenated, underscored, like a genuine Drive id — must still be deleted when it leaves
+    Drive. The fixture's toy "A"/"B" ids cannot catch a rule keyed on length or on a "-"."""
+    cfg, tmp_path, fake = sync_env
+    real = "1a-Bc_dEfGhIjKlMnOpQrStUvWxYz0123456789abcd"
+    fake.items.append({"id": real, "name": "real.pdf", "mimeType": "application/pdf",
+                       "modifiedTime": "t1", "parents": ["folder1"]})
+    df.sync_once(cfg, "root")
+    manifest = json.loads((tmp_path / "_state.json").read_text())["files"]
+    assert real in manifest and (tmp_path / manifest[real]["localPath"]).exists()
+
+    fake.items = [i for i in fake.items if i["id"] != real]        # gone from Drive
+    assert df.sync_once(cfg, "root")["removed"] == 1
+    assert real not in json.loads((tmp_path / "_state.json").read_text())["files"]
+    assert not (tmp_path / f"{real}.pdf").exists()
 
 
 def test_mass_deletion_brake_counts_only_owned_entries(sync_env):

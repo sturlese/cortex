@@ -21,10 +21,10 @@ backends), so every target is exact and any drift is a real regression. **CI run
 | ACL fixture | `acl-config.json` |
 | output | `out/scorecard.md` (+ the full run tree under `out/`) |
 
-`run_evals.py` puts `pipeline/{clean,graph,corpus,slack}/src` and `answer/src` on `sys.path`, so
+`run_evals.py` puts `pipeline/{clean,graph,corpus,slack,fetch}/src` and `answer/src` on `sys.path`, so
 it is the one harness that imports *both* sides of every cross-package contract.
 
-## The scorecard: 24 metrics
+## The scorecard: 25 metrics
 
 Emitted in `main()` in run order — each `eval_*` function contributes a fixed number:
 
@@ -39,10 +39,10 @@ Emitted in `main()` in run order — each `eval_*` function contributes a fixed 
 | `eval_graph` | 1 — canonical entity nodes |
 | `eval_answers` | 4 — one per `qa_golden.json` case (exactness, freshness, refusal, retrieval) |
 | `eval_acl` | 1 — sales answered, eng refused *and* the page absent from its search |
-| `eval_contract_parity` | 2 — ACL visibility parity, facts read-path parity |
+| `eval_contract_parity` | 3 — ACL visibility parity, facts read-path parity, connector id ownership (fetch's deletion scope vs the ids slack/corpus really emit) |
 | `eval_slack_connector` | 1 — export → verified page through the unchanged pipeline |
 
-**A live-model run scores 23, not 24**: with `CLEAN_LLM` set to anything other than `fake-flawed`
+**A live-model run scores 24, not 25**: with `CLEAN_LLM` set to anything other than `fake-flawed`
 there is nothing seeded to catch, so `eval_clean_and_trust` swaps its two seeded-defect metrics
 for one ("no unresolved verification failures"). Placement, curation, graph and contract metrics
 stay exact either way.
@@ -54,8 +54,9 @@ stay exact either way.
 - `golden.json` / `qa_golden.json` — expectations are **data**. Add cases there before adding code.
 - `eval_contract_parity` — the doctrine check for [ADR 001](../docs/decisions/001-no-ddd-refactor.md):
   the packages deliberately share no code, so the hand-mirrored halves of each cross-package
-  contract (clean's `visible(list)` vs answer's `visible(csv)`; `query_facts` vs `query_metrics`)
-  are proven to agree here. Any new duplicated contract belongs in this function.
+  contract (clean's `visible(list)` vs answer's `visible(csv)`; `query_facts` vs `query_metrics`;
+  fetch's deletion scope vs the ids slack and corpus really emit) are proven to agree here. Any new
+  duplicated contract belongs in this function.
 - `_jsonl(path)` — reading stage artifacts.
 
 ## Avoid / anti-patterns
@@ -82,8 +83,8 @@ what gates CI.
 ## Tests
 
 The harness has no unit tests of its own — it *is* the test, at system level. Package-level suites
-live next to each package (421 tests total: fetch 29, clean 248, corpus 48, graph 38, slack 13,
-answer 42, benchmark 3). Capability against a generated ground-truth corpus is scored separately
+live next to each package (434 tests total: fetch 33, clean 252, corpus 48, graph 40, slack 13,
+answer 45, benchmark 3). Capability against a generated ground-truth corpus is scored separately
 by [`../benchmark/`](../benchmark/index.md).
 
 ## Common tasks

@@ -25,7 +25,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 for rel in ("pipeline/clean/src", "pipeline/graph/src", "pipeline/corpus/src",
-            "pipeline/slack/src", "answer/src"):
+            "pipeline/slack/src", "pipeline/fetch/src", "answer/src"):
     sys.path.insert(0, str(ROOT / rel))
 
 OUT = ROOT / "evals" / "out"
@@ -251,7 +251,10 @@ def eval_contract_parity(facts_dir: Path) -> None:
     - ACL visibility: clean's visible(list) vs answer's visible(csv) over the full truth table,
       including the empty-intersection dossier case that once diverged (served open).
     - Facts read path: the pipeline's query_facts vs the serving layer's query_metrics over the
-      store this run produced — same rows, same order, case-folded inputs, verified-only."""
+      store this run produced — same rows, same order, case-folded inputs, verified-only.
+    - Connector id ownership: every id shape a connector actually emits vs fetch's deletion scope,
+      because a raw dir may be shared (ADR 011 clause 2) and fetch deleting somebody else's entry
+      takes that document's page and facts rows with it."""
     from answer.index import visible as answer_visible
     from answer.metrics import query_metrics
     from clean.acl import visible as clean_visible
@@ -271,6 +274,30 @@ def eval_contract_parity(facts_dir: Path) -> None:
     agree = all(query_facts(str(facts_dir), limit=100, **p)
                 == query_metrics(str(facts_dir), limit=100, **p) for p in probes)
     metric("contract: facts read-path parity (pipeline vs serving)", f"{len(probes)} probes", agree)
+
+    # Ask each connector for a real id and check fetch would not delete it. A hand-maintained
+    # prefix list cannot be trusted to stay in step with three separate id generators — this is the
+    # guard that catches the next connector (or the next key-shape change) instead of a comment.
+    import drive_fetch
+
+    from corpus.schemas import ManifestRecord
+    from corpus.stages.build_inventory import build_inventory
+    from slackexport.sync import doc_id
+
+    rec = ManifestRecord(path="./Ops/handbook.pdf", unit="ops", size=1, mtime=1.0,
+                         md5="abc", type="reports", verdict="IN")
+    drive_id = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+    foreign = [("slack.doc_id", doc_id("general", "2026-01"), {"fingerprint": "x"})]
+    for label, ids in (("corpus (local key)", {}),
+                       ("corpus (--drive-ids key)", {"Ops/handbook.pdf": drive_id})):
+        # the un-namespaced branch (key = fid or _stable_key) is the one a prefix test cannot see
+        foreign += [(label, k, v) for k, v in build_inventory([rec], ids)["files"].items()]
+    leaks = [f"{label}:{fid}" for label, fid, entry in foreign if drive_fetch.owns(fid, entry)]
+    # ...and the converse: an id fetch really does own must still be deletable, or clause 3 breaks
+    own_ok = drive_fetch.owns(drive_id, {"fingerprint": "t1||", "localPath": f"{drive_id}.pdf"})
+    metric("contract: connector id ownership (fetch deletion scope)",
+           f"{len(foreign)}/{len(foreign)} foreign protected" if not leaks else f"LEAKS {leaks}",
+           not leaks and own_ok)
 
 
 def eval_answers(brain: Path, facts_dir: Path, answer_state: Path) -> None:

@@ -9,7 +9,8 @@ Incremental model: folder-scoped via `gog drive inventory --parent <folder>` (re
 plus a MANIFEST keyed by Drive file id in raw/_state.json. Each run: list the folder, compare each
 file's fingerprint (modifiedTime) against the manifest, and download only new/changed files;
 whatever disappeared from the folder is removed from raw/ and from the manifest (deletions
-propagate).
+propagate) — among the entries THIS connector owns: a raw dir may be shared with other connectors
+(ADR 011), whose entries are never touched here. See owns().
 
 CREDENTIALS: none hardcoded. All configuration is read ONCE, in `Config.from_env()` at the
 entrypoint, and passed down explicitly — this module never reads the environment at import time.
@@ -41,17 +42,30 @@ from pathlib import Path
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
 
-# Other connectors' id namespaces (ADR 011: several connectors may share one raw dir, and each
-# manages ONLY the ids it owns). This module owns the un-namespaced Drive ids; a Drive inventory can
-# never return one of these, so "absent from the listing" does not mean "deleted" for them.
-# A NEW CONNECTOR MUST ADD ITS PREFIX HERE, or its entries get deleted on the next fetch pass.
-# The mirror of slackexport.sync's `f.startswith("slack-")` deletion scope.
+# Other connectors' id namespaces (ADR 011: several connectors may share one raw dir, each managing
+# ONLY the ids it owns). A Drive inventory can never return one of these.
+# A NEW CONNECTOR SHOULD ADD ITS PREFIX HERE. It is not the only guard — see owns().
 FOREIGN_ID_PREFIXES = ("slack-", "local-")
 
 
-def owns(file_id: str) -> bool:
-    """True when this connector is responsible for the manifest entry (i.e. it is a Drive id)."""
-    return not file_id.startswith(FOREIGN_ID_PREFIXES)
+def owns(file_id: str, entry) -> bool:
+    """True when THIS connector is responsible for a manifest entry, i.e. absence from the Drive
+    listing really does mean "deleted from Drive" for it. Two independent ways it is somebody else's:
+
+    - a namespaced id (ADR 011: `slack-…`, `local-…`);
+    - no `fingerprint`. A connector fingerprints what it mirrors only if it does change detection.
+      corpus's build-inventory does not — and it is the one connector that can key an entry by a
+      REAL, un-namespaced Drive id (`key = fid or _stable_key(rel)`, when `--drive-ids` supplies
+      one), which a prefix test alone cannot distinguish from ours. Its `inventory.json` becomes a
+      raw `_state.json` in the demo, the evals and the benchmark, so that is a shipped path.
+
+    Deliberately conservative: an entry we cannot positively attribute is left ALONE. The cost of
+    being wrong that way is one stale manifest entry; the cost of being wrong the other way is
+    deleting another connector's document, its brain page and its facts rows.
+    """
+    if not isinstance(entry, dict):
+        return False                       # hand-edited/corrupt entry: not ours to delete
+    return not file_id.startswith(FOREIGN_ID_PREFIXES) and "fingerprint" in entry
 
 
 @dataclass(frozen=True)
@@ -381,10 +395,16 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
     # deletion — refuse rather than wipe the whole mirror (which clean would then propagate).
     # Counts only OWNED entries: an empty Drive folder beside a raw dir that holds another
     # connector's entries is not a mass deletion, and those entries are never deleted here anyway.
-    owned = [fid for fid in manifest if owns(fid)]
+    owned = [fid for fid in manifest if owns(fid, manifest[fid])]
     if not items and owned:
         raise GogError(f"inventory returned 0 items but the manifest has {len(owned)} Drive entries — "
                        "refusing to treat this as a mass deletion")
+    if not items and manifest:
+        # Nothing of ours to protect, so raising would be a false alarm — but an empty listing over a
+        # populated raw dir is still the shape of a misconfigured DRIVE_FOLDER or a glitching gog,
+        # and silently logging "sync OK" would hide it forever. Warn without failing the pass.
+        log(f"inventory returned 0 items; no Drive entries to reconcile (the manifest's "
+            f"{len(manifest)} entries all belong to other connectors) — check DRIVE_FOLDER")
     lineage_by_id = build_lineage(cfg, items, folder_id)
 
     seen: set[str] = set()
@@ -450,7 +470,7 @@ def sync_once(cfg: Config, folder_id: str) -> dict:
     # (and clean would then propagate that into page + facts deletion). See FOREIGN_ID_PREFIXES.
     removed = 0
     for fid in list(manifest):
-        if fid not in seen and owns(fid):
+        if fid not in seen and owns(fid, manifest[fid]):
             remove_local(cfg, manifest[fid], fid)
             del manifest[fid]
             removed += 1
