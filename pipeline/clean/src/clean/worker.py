@@ -156,19 +156,27 @@ async def process_one(doc: dict, processor: Processor, raw_dir, brain_md_dir, ca
         facts_counts = {"kept": len(fact_rows), "rejected": len(rejected)}
         if rejected:
             facts_counts["rejected_reasons"] = [list(r) for r in rejected[:8]]
-    elif facts_dir and (facts_processor if method == "sheet" else prose_facts_processor):
-        # The extractor IS configured and the document still yielded nothing — its CONTENT no longer
-        # carries facts (the page dropped to `minimal`). factstore's contract is replace-per-document,
-        # so "no rows" has to mean the document has no rows; otherwise the previous pass's numbers
-        # stay behind pointing at a page that no longer contains them, and the answer layer serves a
-        # figure its own citation does not support. The `skipped` path above does this for the noise
-        # case; this is the same requirement for the other way of producing none.
+    elif facts_dir and out.representation == "minimal":
+        # A `minimal` page is a POINTER — title, type, source link (agents.py: "raw data without
+        # narrative ... -> pointer"). Note what that does and does not mean: the SOURCE may still be
+        # full of figures; it is the PAGE that stopped carrying them. Every row in the store cites a
+        # page via page_path, so rows left from an earlier pass would cite a page that cannot support
+        # them, and the answer layer would serve a figure its own citation does not contain.
         #
-        # Deliberately NOT when the extractor is switched off (no processor passed): that is a config
-        # change, not a statement about the document, and turning CLEAN_FACTS_PROSE off to save cost
-        # must not silently wipe the store. Those rows go stale instead of disappearing — recoverable
-        # by turning it back on, where deletion would not be.
-        factstore.delete_facts(facts_dir, file_id)
+        # So the test is what the page can support, NOT whether the extractor happens to be
+        # configured: a pointer page cannot support a figure either way. That also keeps this
+        # consistent with the `skipped` path above, which deletes unconditionally because a skipped
+        # doc has no page at all — the same reasoning, one step further.
+        #
+        # A full/digest page whose extractor is switched off is the opposite case and deliberately
+        # untouched: that page still carries its narrative and supports its rows; we are simply not
+        # refreshing them. They go stale until the document's bytes change (classify_pending keys on
+        # the content hash, so a config flip alone never re-runs the document).
+        n = factstore.delete_facts(facts_dir, file_id)
+        if n:
+            # reported rather than logged here: main owns the pass log, and importing it would be a
+            # cycle. A destructive step must show up in the audit log like its two sibling deletes.
+            facts_counts = {"kept": 0, "rejected": 0, "cleared": n}
 
     result = {
         "fileId": file_id,

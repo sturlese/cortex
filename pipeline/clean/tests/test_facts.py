@@ -387,9 +387,45 @@ def test_switching_the_extractor_off_does_not_wipe_the_store(tmp_path):
                             prose_facts_processor=FakeProseFactsProcessor(), facts_dir=fdir))
     assert factstore.query_facts(fdir)
 
-    # same document, same content — only the extractor is gone
+    # same document, same content — only the extractor is gone. The page is still full/digest, so it
+    # still carries the narrative those rows cite: they go stale rather than disappearing.
     asyncio.run(process_one(doc, FakeProcessor(_output()), str(tmp_path), brain, facts_dir=fdir))
     assert factstore.query_facts(fdir), "a config change must not delete the document's facts"
+
+    # ...but a POINTER page cannot support a figure whatever the config says, so `minimal` clears
+    # even with the extractor off. That is the same reasoning as the `skipped` path, which deletes
+    # unconditionally because a skipped doc has no page at all — the two must not disagree.
+    asyncio.run(process_one(doc, FakeProcessor(_output(representation="minimal")),
+                            str(tmp_path), brain, facts_dir=fdir))
+    assert factstore.query_facts(fdir) == []
+
+
+def test_a_sheet_pass_with_zero_kept_rows_still_clears(tmp_path):
+    """`fact_rows is not None` matters: an extraction that ran and kept NOTHING yields an empty list,
+    which must still replace (i.e. clear) the document's rows. `if fact_rows:` would skip that and
+    silently leave the previous pass's numbers behind — the same bug one branch over."""
+    from tests.test_worker import FakeProcessor, _output
+
+    from clean.worker import process_one
+
+    fdir = str(tmp_path / "facts")
+    csv = tmp_path / "data.csv"
+    csv.write_text("label,value\nheadcount,312\n")
+    doc = {"fileId": "FSHEET", "path": str(csv), "entry": {"name": "data.csv", "sourceUri": "u"}}
+    factstore.replace_facts(fdir, "FSHEET", _rows("FSHEET", _obs()), page_path="stale.md",
+                            entity=None, org_unit=None, extracted_at="t")
+    assert factstore.query_facts(fdir)
+
+    class NoFacts:
+        async def run(self, prompt, *, deps=None, usage_limits=None):
+            from clean.fake_llm import fake_result
+            from clean.schemas import FactsOutput
+            return fake_result(FactsOutput(observations=[], reason="no numeric cells"))
+
+    res = asyncio.run(process_one(doc, FakeProcessor(_output()), str(tmp_path),
+                                  str(tmp_path / "brain"), facts_processor=NoFacts(), facts_dir=fdir))
+    assert res["facts"]["kept"] == 0
+    assert factstore.query_facts(fdir) == []
 
 
 def test_process_one_without_facts_processor_is_unchanged(tmp_path):
